@@ -1,0 +1,38 @@
+# Render Blueprint — Saravanan Fleet Management Backend
+# Docs: https://render.com/docs/blueprint-spec
+#
+# How to use:
+#   1. Push this file to your GitHub repository root.
+#   2. In Render Dashboard → New → Blueprint → connect your repo.
+#   3. Fill in the secret env vars (GOOGLE_SPREADSHEET_ID, GOOGLE_CREDENTIALS_JSON)
+#      in the Render dashboard after the first deploy.
+
+services:
+  - type: web
+    name: saravanan-fleet-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: PORT
+        value: 5001
+
+      # ── Required: set these in the Render dashboard ──────────────────────────
+      - key: GOOGLE_SPREADSHEET_ID
+        sync: false   # Secret — set manually in Render dashboard
+
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false   # Secret — paste full service account JSON in Render dashboard
+
+      # ── CORS: set to your Vercel frontend URL ──────────────────────────────
+      - key: CLIENT_ORIGIN
+        sync: false   # e.g. https://saravanan-fleet.vercel.app
+
+      # ── Optional tuning ───────────────────────────────────────────────────
+      - key: SYNC_INTERVAL_MS
+        value: 20000
