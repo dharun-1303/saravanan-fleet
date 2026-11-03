@@ -319,6 +319,7 @@ export const Vehicles: React.FC<VehiclesProps> = ({
                     <option value="LCV">LCV</option>
                     <option value="Heavy Truck">Heavy Truck</option>
                     <option value="Pickup Truck">Pickup Truck</option>
+                    <option value="Bike">Bike</option>
                   </select>
                 </div>
 
