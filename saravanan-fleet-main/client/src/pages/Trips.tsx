@@ -371,8 +371,7 @@ export const Trips: React.FC<TripsProps> = ({
                     value={formData.date}
                     onChange={e => setFormData({ ...formData, date: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
-                  >
-                  </input>
+                  />
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Amount (INR)</label>
@@ -445,13 +444,15 @@ export const Trips: React.FC<TripsProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Driver Name</label>
-                  <input
-                    type="text"
-                    placeholder="Driver name"
+                  <select
                     value={formData.driver}
                     onChange={e => setFormData({ ...formData, driver: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
-                  />
+                  >
+                    <option value="">Select Driver</option>
+                    <option value="Sathish">Sathish</option>
+                    <option value="Saravanan Perumal">Saravanan Perumal</option>
+                  </select>
                 </div>
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Staff / Employee</label>
@@ -496,6 +497,7 @@ export const Trips: React.FC<TripsProps> = ({
           </div>
         </div>
       )}
+
       {/* Delete Confirmation Modal */}
       <ConfirmModal
         isOpen={Boolean(deletingTrip)}
