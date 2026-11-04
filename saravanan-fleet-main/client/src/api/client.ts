@@ -328,16 +328,24 @@ export const api = {
   async uploadPhoto(file: File): Promise<{ url: string }> {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`${API_BASE}/upload/photo`, { method: 'POST', body: form });
-    if (!res.ok) throw new Error('Photo upload failed');
+    const res = await fetch(`${API_BASE}/upload-photo`, { method: 'POST', body: form });
+    if (!res.ok) {
+      const fallback = await fetch(`${API_BASE}/upload/photo`, { method: 'POST', body: form });
+      if (!fallback.ok) throw new Error('Photo upload failed');
+      return fallback.json();
+    }
     return res.json();
   },
 
   async uploadDocument(file: File): Promise<{ url: string }> {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`${API_BASE}/upload/document`, { method: 'POST', body: form });
-    if (!res.ok) throw new Error('Document upload failed');
+    const res = await fetch(`${API_BASE}/upload-document`, { method: 'POST', body: form });
+    if (!res.ok) {
+      const fallback = await fetch(`${API_BASE}/upload/document`, { method: 'POST', body: form });
+      if (!fallback.ok) throw new Error('Document upload failed');
+      return fallback.json();
+    }
     return res.json();
   },
 };
