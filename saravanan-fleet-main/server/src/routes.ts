@@ -276,8 +276,8 @@ export function createFleetRouter(dataStore: DataStore): Router {
   router.post('/documents', async (req: Request, res: Response) => {
     try {
       const { vehicle_id, document_type, document_number, issue_date, expiry_date, issuer, file_url, notes, recorded_by } = req.body;
-      if (!vehicle_id || !document_type || !expiry_date) {
-        res.status(400).json({ error: 'vehicle_id, document_type, and expiry_date are required' });
+      if (!vehicle_id || !document_type) {
+        res.status(400).json({ error: 'vehicle_id and document_type are required' });
         return;
       }
       const doc = await dataStore.addDocument({
@@ -285,7 +285,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
         document_type,
         document_number: document_number || '',
         issue_date: issue_date || '',
-        expiry_date,
+        expiry_date: expiry_date || '',
         issuer: issuer || '',
         file_url: file_url || '',
         notes: notes || '',
