@@ -30,7 +30,7 @@ export class GoogleDriveClient {
         const credentials = JSON.parse(config.credentialsJson);
         this.authClient = new google.auth.JWT({
           email: credentials.client_email,
-          key: credentials.private_key,
+          key: credentials.private_key?.replace(/\\n/g, '\n'),
           scopes,
         });
         this.drive = google.drive({ version: 'v3', auth: this.authClient });
