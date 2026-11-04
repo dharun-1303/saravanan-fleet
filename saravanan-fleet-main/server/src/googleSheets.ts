@@ -24,7 +24,7 @@ export class GoogleSheetsClient {
         const credentials = JSON.parse(config.credentialsJson);
         this.authClient = new google.auth.JWT({
           email: credentials.client_email,
-          key: credentials.private_key,
+          key: credentials.private_key?.replace(/\\n/g, '\n'),
           scopes: ['https://www.googleapis.com/auth/spreadsheets'],
         });
         this.sheets = google.sheets({ version: 'v4', auth: this.authClient });
