@@ -13,6 +13,7 @@ dotenv.config();
 export interface AppConfig {
   port: number;
   spreadsheetId: string;
+  driveFolderId?: string;
   credentialsPath?: string;
   credentialsJson?: string;
   clientEmail?: string;
@@ -23,7 +24,12 @@ export interface AppConfig {
 
 const PORT = parseInt(process.env.PORT || '5001', 10);
 const SPREADSHEET_ID = (process.env.GOOGLE_SPREADSHEET_ID || '').trim();
+const DRIVE_FOLDER_ID = (process.env.GOOGLE_DRIVE_FOLDER_ID || '1cJAu7H0d3m64mkIeG11Shi5spdcBDzZa').trim();
 let rawCredentialsPath = (process.env.GOOGLE_CREDENTIALS_PATH || '').trim();
+if ((rawCredentialsPath.startsWith('"') && rawCredentialsPath.endsWith('"')) ||
+    (rawCredentialsPath.startsWith("'") && rawCredentialsPath.endsWith("'"))) {
+  rawCredentialsPath = rawCredentialsPath.slice(1, -1).trim();
+}
 const CREDENTIALS_JSON = (process.env.GOOGLE_CREDENTIALS_JSON || '').trim();
 const CLIENT_EMAIL = (process.env.GOOGLE_CLIENT_EMAIL || '').trim();
 const PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n') || '';
@@ -38,6 +44,8 @@ if (rawCredentialsPath) {
     resolvedCredentialsPath = path.resolve(serverDir, rawCredentialsPath);
   } else if (fs.existsSync(path.resolve(process.cwd(), rawCredentialsPath))) {
     resolvedCredentialsPath = path.resolve(process.cwd(), rawCredentialsPath);
+  } else {
+    resolvedCredentialsPath = rawCredentialsPath;
   }
 }
 
@@ -59,6 +67,7 @@ if (resolvedCredentialsPath && fs.existsSync(resolvedCredentialsPath)) {
 export const config: AppConfig = {
   port: PORT,
   spreadsheetId: SPREADSHEET_ID,
+  driveFolderId: DRIVE_FOLDER_ID,
   credentialsPath: resolvedCredentialsPath || rawCredentialsPath,
   credentialsJson: CREDENTIALS_JSON,
   clientEmail: CLIENT_EMAIL,
