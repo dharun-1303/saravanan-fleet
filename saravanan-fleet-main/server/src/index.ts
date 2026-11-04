@@ -7,6 +7,7 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { DataStore } from './dataStore.js';
+import { GoogleDriveClient } from './googleDrive.js';
 import { createFleetRouter } from './routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -63,19 +64,77 @@ const docStorage = multer.diskStorage({
 const uploadPhoto = multer({ storage: photoStorage, limits: { fileSize: 5 * 1024 * 1024 } });
 const uploadDoc = multer({ storage: docStorage, limits: { fileSize: 10 * 1024 * 1024 } });
 
+// Initialize Google Drive Client
+const driveClient = new GoogleDriveClient();
+
 // Photo upload endpoint
-app.post('/api/upload/photo', uploadPhoto.single('file'), (req, res) => {
+app.post(['/api/upload/photo', '/api/upload-photo'], uploadPhoto.single('file'), async (req, res) => {
   if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+
+  if (driveClient.isConfigured()) {
+    try {
+      const driveResult = await driveClient.uploadFile(
+        req.file.path,
+        req.file.originalname,
+        req.file.mimetype,
+        config.driveFolderId || '1cJAu7H0d3m64mkIeG11Shi5spdcBDzZa'
+      );
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // ignore error deleting temp file
+      }
+      res.json({
+        url: driveResult.webViewLink,
+        filename: req.file.originalname,
+        driveFileId: driveResult.fileId,
+        storage: 'google_drive',
+      });
+      return;
+    } catch (err: any) {
+      console.error('[Upload] Google Drive photo upload failed, falling back to local:', err.message);
+    }
+  }
+
   const url = `/uploads/photos/${req.file.filename}`;
-  res.json({ url, filename: req.file.filename });
+  res.json({ url, filename: req.file.filename, storage: 'local' });
 });
 
-// Document upload endpoint
-app.post('/api/upload/document', uploadDoc.single('file'), (req, res) => {
+// Document upload endpoint (supports both /api/upload-document and /api/upload/document)
+const handleDocumentUpload = async (req: express.Request, res: express.Response) => {
   if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+
+  if (driveClient.isConfigured()) {
+    try {
+      const driveResult = await driveClient.uploadFile(
+        req.file.path,
+        req.file.originalname,
+        req.file.mimetype,
+        config.driveFolderId || '1cJAu7H0d3m64mkIeG11Shi5spdcBDzZa'
+      );
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch {
+        // ignore error deleting temp file
+      }
+      res.json({
+        url: driveResult.webViewLink,
+        filename: req.file.originalname,
+        driveFileId: driveResult.fileId,
+        storage: 'google_drive',
+      });
+      return;
+    } catch (err: any) {
+      console.error('[Upload] Google Drive document upload failed, falling back to local:', err.message);
+    }
+  }
+
   const url = `/uploads/documents/${req.file.filename}`;
-  res.json({ url, filename: req.file.filename });
-});
+  res.json({ url, filename: req.file.filename, storage: 'local' });
+};
+
+app.post('/api/upload-document', uploadDoc.single('file'), handleDocumentUpload);
+app.post('/api/upload/document', uploadDoc.single('file'), handleDocumentUpload);
 
 // Initialize central DataStore
 const dataStore = new DataStore();
@@ -91,6 +150,10 @@ app.get('/api/health', (_req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     sync: dataStore.getSyncStatus(),
+    drive: {
+      configured: driveClient.isConfigured(),
+      folderId: driveClient.getFolderId() || null,
+    },
   });
 });
 
@@ -109,7 +172,8 @@ if (!isServerless && process.env.NODE_ENV !== 'test') {
     console.log(`\n======================================================`);
     console.log(`⚡ Saravanan Electricals Fleet Backend Online!`);
     console.log(`📡 URL: http://localhost:${config.port}`);
-    console.log(`📊 Mode: ${config.isMockMode ? 'Local / Offline Cache' : 'Live Google Sheets Connected'}`);
+    console.log(`📊 Sheets Mode: ${config.isMockMode ? 'Local / Offline Cache' : 'Live Google Sheets Connected'}`);
+    console.log(`📁 Drive Storage: ${driveClient.isConfigured() ? 'Active (Folder ID: ' + driveClient.getFolderId() + ')' : 'Local Disk Only'}`);
     console.log(`======================================================\n`);
   });
 
