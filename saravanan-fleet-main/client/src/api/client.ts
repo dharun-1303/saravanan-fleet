@@ -340,11 +340,13 @@ export const api = {
   async uploadDocument(file: File): Promise<{ url: string }> {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`${API_BASE}/upload-document`, { method: 'POST', body: form });
+    let res = await fetch(`${API_BASE}/upload-document`, { method: 'POST', body: form });
+    if (!res.ok && res.status === 404) {
+      res = await fetch(`${API_BASE}/upload/document`, { method: 'POST', body: form });
+    }
     if (!res.ok) {
-      const fallback = await fetch(`${API_BASE}/upload/document`, { method: 'POST', body: form });
-      if (!fallback.ok) throw new Error('Document upload failed');
-      return fallback.json();
+      const errData = await res.json().catch(() => null);
+      throw new Error(errData?.error || 'Document upload failed');
     }
     return res.json();
   },
