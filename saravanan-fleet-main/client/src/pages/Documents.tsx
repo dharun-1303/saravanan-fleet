@@ -58,9 +58,10 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
       const result = await api.uploadDocument(file);
       setFormData(prev => ({ ...prev, file_url: result.url }));
     } catch {
-      setDocUploadError('Upload failed. Try pasting a URL instead.');
+      setDocUploadError('Upload failed. Try pasting a Google Drive URL instead.');
     } finally {
       setDocUploading(false);
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -88,7 +89,7 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
       document_type: d.document_type as any,
       document_number: d.document_number,
       issue_date: d.issue_date || '',
-      expiry_date: d.expiry_date,
+      expiry_date: d.expiry_date || '',
       issuer: d.issuer || '',
       file_url: d.file_url || '',
       notes: d.notes || '',
@@ -101,11 +102,6 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
-
-    if (!formData.expiry_date) {
-      setFormError('Expiry date is mandatory for statutory compliance tracking.');
-      return;
-    }
 
     try {
       setIsSubmitting(true);
@@ -205,8 +201,10 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredDocs.map(doc => {
-                const daysRemaining = Math.ceil((new Date(doc.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                const statusInfo = formatRelativeDays(daysRemaining);
+                const daysRemaining = doc.expiry_date
+                  ? Math.ceil((new Date(doc.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                  : null;
+                const statusInfo = daysRemaining !== null ? formatRelativeDays(daysRemaining) : { text: 'No Expiry' };
 
                 return (
                   <tr key={doc.document_id} className="hover:bg-slate-50/70 transition-colors">
@@ -217,8 +215,8 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
                       {vehicleMap.get(doc.vehicle_id) || doc.vehicle_id}
                     </td>
                     <td className="py-3 px-4 font-mono font-medium text-slate-700">{doc.document_number || '—'}</td>
-                    <td className="py-3 px-4 text-slate-600">{formatDate(doc.issue_date)}</td>
-                    <td className="py-3 px-4 font-semibold text-slate-900">{formatDate(doc.expiry_date)}</td>
+                    <td className="py-3 px-4 text-slate-600">{doc.issue_date ? formatDate(doc.issue_date) : '—'}</td>
+                    <td className="py-3 px-4 font-semibold text-slate-900">{doc.expiry_date ? formatDate(doc.expiry_date) : '—'}</td>
                     <td className="py-3 px-4">
                       <StatusBadge status={statusInfo.text} />
                     </td>
@@ -231,7 +229,7 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-semibold text-[11px]"
                         >
-                          <span>View Doc</span>
+                          <span>{doc.file_url.includes('drive.google.com') ? 'Google Drive' : 'View Doc'}</span>
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       ) : (
@@ -350,10 +348,11 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="font-semibold text-slate-700 block mb-1">Expiry Date *</label>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    Expiry Date <span className="text-slate-400 font-normal text-xs">(Optional)</span>
+                  </label>
                   <input
                     type="date"
-                    required
                     value={formData.expiry_date}
                     onChange={e => setFormData({ ...formData, expiry_date: e.target.value })}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
@@ -373,9 +372,9 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
               </div>
 
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">Document File</label>
-                <div className="flex gap-2 mb-1.5">
-                  <input ref={docInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" className="hidden" onChange={handleDocFileChange} />
+                <label className="font-semibold text-slate-700 block mb-1">Document Link / File</label>
+                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                  <input ref={docInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,image/*" className="hidden" onChange={handleDocFileChange} />
                   <button
                     type="button"
                     onClick={() => docInputRef.current?.click()}
@@ -383,23 +382,30 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700"
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    {docUploading ? 'Uploading...' : 'Upload File (PDF/Image)'}
+                    {docUploading ? 'Uploading to Drive...' : 'Upload File (Auto-saves to Drive)'}
                   </button>
                   {formData.file_url && (
-                    <a href={formData.file_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-blue-600 font-semibold">
+                    <a href={formData.file_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-semibold">
                       <ExternalLink className="w-3 h-3" /> View
                     </a>
+                  )}
+                  {formData.file_url && formData.file_url.includes('drive.google.com') && (
+                    <span className="text-[11px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      Google Drive Link Active
+                    </span>
                   )}
                 </div>
                 <input
                   type="text"
-                  placeholder="Or paste URL: https://drive.google.com/..."
+                  placeholder="Or paste Google Drive share link: https://drive.google.com/file/d/..."
                   value={formData.file_url}
                   onChange={e => setFormData({ ...formData, file_url: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                 />
                 {docUploadError && <p className="text-xs text-red-500 mt-1">{docUploadError}</p>}
-                <p className="text-[10px] text-slate-400 mt-1">Uploaded files are stored on this computer's server. Google Drive/Dropbox URLs work across devices.</p>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Files uploaded via the button above or pasted share links are linked to Google Sheets for multi-device access.
+                </p>
               </div>
 
               <div>
@@ -433,11 +439,12 @@ export const DocumentsPage: React.FC<DocumentsProps> = ({
           </div>
         </div>
       )}
+
       {/* Delete Confirmation Modal */}
       <ConfirmModal
         isOpen={Boolean(deletingDoc)}
         title="Delete Document"
-        message={`Are you sure you want to permanently delete document "${deletingDoc?.document_type}" (${deletingDoc?.document_number || 'No number'}) expiring on ${formatDate(deletingDoc?.expiry_date || '')}? This row will also be permanently deleted from Google Sheets.`}
+        message={`Are you sure you want to permanently delete document "${deletingDoc?.document_type}" (${deletingDoc?.document_number || 'No number'})? This row will also be permanently deleted from Google Sheets.`}
         isLoading={isDeleting}
         onConfirm={async () => {
           if (!deletingDoc || !onDeleteDocument) return;
