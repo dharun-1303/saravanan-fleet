@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Plus,
   Truck,
+  ExternalLink,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -600,28 +601,47 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     <th className="pb-2.5">Status</th>
                     <th className="pb-2.5">Issuer</th>
                     <th className="pb-2.5">Notes</th>
+                    <th className="pb-2.5 text-right">Document</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {documents.map(d => {
-                    const daysRemaining = Math.ceil((new Date(d.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                    const statusInfo = formatRelativeDays(daysRemaining);
+                    const daysRemaining = d.expiry_date
+                      ? Math.ceil((new Date(d.expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                      : null;
+                    const statusInfo = daysRemaining !== null ? formatRelativeDays(daysRemaining) : { text: 'No Expiry' };
                     return (
                       <tr key={d.document_id} className="hover:bg-slate-50/80">
                         <td className="py-2.5 font-bold text-slate-900">{d.document_type}</td>
                         <td className="py-2.5 font-mono text-slate-700">{d.document_number || '—'}</td>
-                        <td className="py-2.5 text-slate-800 font-medium">{formatDate(d.expiry_date)}</td>
+                        <td className="py-2.5 text-slate-800 font-medium">{d.expiry_date ? formatDate(d.expiry_date) : '—'}</td>
                         <td className="py-2.5">
                           <StatusBadge status={statusInfo.text} />
                         </td>
                         <td className="py-2.5 text-slate-600">{d.issuer || '—'}</td>
                         <td className="py-2.5 text-slate-500 text-[11px]">{d.notes}</td>
+                        <td className="py-2.5 text-right">
+                          {d.file_url ? (
+                            <a
+                              href={d.file_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-semibold text-xs"
+                              title="Open in Google Drive"
+                            >
+                              <span>View Document</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <span className="text-slate-400 text-xs italic">No file</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
                   {documents.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">No compliance documents attached.</td>
+                      <td colSpan={7} className="py-8 text-center text-slate-400">No compliance documents attached.</td>
                     </tr>
                   )}
                 </tbody>
