@@ -125,8 +125,16 @@ const handleDocumentUpload = async (req: express.Request, res: express.Response)
       });
       return;
     } catch (err: any) {
-      console.error('[Upload] Google Drive document upload failed, falling back to local:', err.message);
+      console.error('[Upload] Google Drive document upload failed:', err.message);
+      if (process.env.NODE_ENV === 'production' || process.env.GOOGLE_DRIVE_FOLDER_ID) {
+        res.status(500).json({
+          error: `Google Drive upload failed: ${err.message}. Please ensure the Service Account has Editor access to folder ${config.driveFolderId || '1cJAu7H0d3m64mkIeG11Shi5spdcBDzZa'}.`,
+        });
+        return;
+      }
     }
+  } else if (process.env.NODE_ENV === 'production') {
+    console.warn('[Upload] Google Drive client is not configured; storing file on local/temp disk.');
   }
 
   const url = `/uploads/documents/${req.file.filename}`;
