@@ -10,6 +10,9 @@ export interface Vehicle {
   notes: string;
 }
 
+export type GateStatus = 'PENDING_EXIT' | 'DISPATCHED' | 'PENDING_ENTRY' | 'COMPLETED';
+export type TripStatus = 'COMPLETED' | 'IN_TRANSIT' | 'UNFINISHED';
+
 export interface Trip {
   trip_id: string;
   vehicle_id: string;
@@ -23,9 +26,15 @@ export interface Trip {
   amount: number;
   driver?: string;
   employee?: string;
-  status: 'COMPLETED' | 'UNFINISHED';
+  status: TripStatus;
+  trip_status?: TripStatus;
   sheet_name?: string;
   row_index?: number;
+  gate_status?: GateStatus;
+  gate_out_time?: string;
+  gate_out_by?: string;
+  gate_in_time?: string;
+  gate_in_by?: string;
 }
 
 export interface FuelRecord {
