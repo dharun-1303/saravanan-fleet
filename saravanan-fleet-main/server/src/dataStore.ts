@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Vehicle, Trip, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRecord, SettingRecord, SyncStatus } from './types/index.js';
+import { Vehicle, Trip, GateStatus, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRecord, SettingRecord, SyncStatus } from './types/index.js';
 import { GoogleSheetsClient } from './googleSheets.js';
 import { config } from './config.js';
 
@@ -268,6 +268,12 @@ export class DataStore {
               const startKm = parseFloat(r[3]) || 0;
               const endKm = r[4] ? parseFloat(r[4]) : null;
               const dist = parseFloat(r[5]) || (endKm ? Math.max(0, endKm - startKm) : 0);
+              const rawGate = (r[8] || '').toString().trim() as GateStatus;
+              const defaultGate: GateStatus = endKm && endKm >= startKm ? 'COMPLETED' : 'PENDING_EXIT';
+              const gateStatus: GateStatus = ['PENDING_EXIT', 'DISPATCHED', 'PENDING_ENTRY', 'COMPLETED'].includes(rawGate)
+                ? rawGate
+                : defaultGate;
+
               vTrips.push({
                 trip_id: `trip-s-${candidateTab}-${i}`,
                 vehicle_id: v.vehicle_id,
@@ -282,6 +288,11 @@ export class DataStore {
                 status: endKm && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED',
                 sheet_name: candidateTab,
                 row_index: i + 1,
+                gate_status: gateStatus,
+                gate_out_time: (r[9] || '').toString() || undefined,
+                gate_out_by: (r[10] || '').toString() || undefined,
+                gate_in_time: (r[11] || '').toString() || undefined,
+                gate_in_by: (r[12] || '').toString() || undefined,
               });
             }
           }
@@ -523,11 +534,12 @@ export class DataStore {
     return updated;
   }
 
-  public async addTrip(tripData: Omit<Trip, 'trip_id' | 'distance' | 'status'>): Promise<Trip> {
+  public async addTrip(tripData: Omit<Trip, 'trip_id' | 'distance' | 'status'> & Partial<Pick<Trip, 'status' | 'trip_status'>>): Promise<Trip> {
     const startKm = Number(tripData.start_km);
     const endKm = tripData.end_km !== undefined && tripData.end_km !== null ? Number(tripData.end_km) : null;
     const distance = endKm !== null && endKm >= startKm ? endKm - startKm : 0;
-    const status = endKm !== null && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED';
+    const status = tripData.status || tripData.trip_status || (endKm !== null && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED');
+    const gate_status: GateStatus = tripData.gate_status || (status === 'COMPLETED' ? 'COMPLETED' : 'PENDING_EXIT');
 
     const newTrip: Trip = {
       ...tripData,
@@ -536,6 +548,12 @@ export class DataStore {
       end_km: endKm,
       distance,
       status,
+      trip_status: status,
+      gate_status,
+      gate_out_time: tripData.gate_out_time || undefined,
+      gate_out_by: tripData.gate_out_by || undefined,
+      gate_in_time: tripData.gate_in_time || undefined,
+      gate_in_by: tripData.gate_in_by || undefined,
     };
     this.trips.unshift(newTrip);
 
@@ -544,7 +562,8 @@ export class DataStore {
         const vehicle = this.vehicles.find(v => v.vehicle_id === newTrip.vehicle_id);
         const targetTab = vehicle?.sheet_tab_name || 'Trips';
         await this.sheetsClient.ensureTabExists(targetTab, [
-          'DATE', 'FROM', 'TO', 'START KM', 'END KM', 'DISTANCE', 'REMARK', 'AMOUNT'
+          'DATE', 'FROM', 'TO', 'START KM', 'END KM', 'DISTANCE', 'REMARK', 'AMOUNT',
+          'GATE STATUS', 'GATE OUT TIME', 'GATE OUT BY', 'GATE IN TIME', 'GATE IN BY'
         ]);
         const res = await this.sheetsClient.appendRow(targetTab, [
           newTrip.date,
@@ -555,6 +574,11 @@ export class DataStore {
           newTrip.distance,
           newTrip.remark,
           newTrip.amount,
+          newTrip.gate_status || '',
+          newTrip.gate_out_time || '',
+          newTrip.gate_out_by || '',
+          newTrip.gate_in_time || '',
+          newTrip.gate_in_by || '',
         ]);
         newTrip.sheet_name = targetTab;
         newTrip.row_index = res.rowIndex;
@@ -574,11 +598,27 @@ export class DataStore {
     
     if (merged.end_km !== null && merged.end_km !== undefined && merged.end_km >= merged.start_km) {
       merged.distance = merged.end_km - merged.start_km;
-      merged.status = 'COMPLETED';
+      if (updates.status) {
+        merged.status = updates.status;
+      } else if (updates.trip_status) {
+        merged.status = updates.trip_status;
+      } else if (merged.gate_status === 'COMPLETED') {
+        merged.status = 'COMPLETED';
+      } else if (updates.gate_status === 'PENDING_ENTRY') {
+        merged.status = 'UNFINISHED';
+      } else {
+        merged.status = 'COMPLETED';
+      }
     } else {
-      merged.status = 'UNFINISHED';
+      merged.status = updates.status || updates.trip_status || (merged.gate_status === 'DISPATCHED' ? 'IN_TRANSIT' : 'UNFINISHED');
       merged.distance = 0;
     }
+
+    if (!merged.gate_status) {
+      merged.gate_status = merged.status === 'COMPLETED' ? 'COMPLETED' : 'PENDING_EXIT';
+    }
+    merged.trip_status = merged.status;
+
     this.trips[index] = merged;
 
     if (this.sheetsClient.isConfigured() && merged.sheet_name && merged.row_index) {
@@ -592,6 +632,11 @@ export class DataStore {
           merged.distance,
           merged.remark,
           merged.amount,
+          merged.gate_status || '',
+          merged.gate_out_time || '',
+          merged.gate_out_by || '',
+          merged.gate_in_time || '',
+          merged.gate_in_by || '',
         ]);
       } catch (err: any) {
         console.error('[DataStore] Error updating trip in Sheets:', err.message);
