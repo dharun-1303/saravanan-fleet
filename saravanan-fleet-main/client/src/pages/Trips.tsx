@@ -450,8 +450,8 @@ export const Trips: React.FC<TripsProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
                   >
                     <option value="">Select Driver</option>
-                    <option value="Sathish">Sathish</option>
                     <option value="Saravana Perumal">Saravana Perumal</option>
+                     <option value="Sathish">Sathish</option>
                     <option value="Others">Others</option>
                   </select>
                 </div>
