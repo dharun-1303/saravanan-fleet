@@ -10,12 +10,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, variant, size 
   let computedVariant = variant;
 
   if (!computedVariant) {
-    const s = status.toLowerCase();
+    const s = status.toLowerCase().replace(/_/g, ' ');
     if (s === 'active' || s === 'completed' || s === 'valid') computedVariant = 'active';
+    else if (s === 'in transit') computedVariant = 'info';
     else if (s === 'inactive' || s === 'unfinished' || s === 'overdue' || s === 'expired') computedVariant = 'critical';
-    else if (s === 'warning' || s === 'expiring soon' || s === 'in transit') computedVariant = 'warning';
+    else if (s === 'warning' || s === 'expiring soon') computedVariant = 'warning';
     else computedVariant = 'neutral';
   }
+
+  const label = status === 'IN_TRANSIT' ? 'In Transit' : status;
 
   const styles: Record<string, string> = {
     active: 'bg-emerald-50 text-emerald-700 border-emerald-200/60',
@@ -40,7 +43,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, variant, size 
       }`}
     >
       <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-current opacity-80" />
-      {status}
+      {label}
     </span>
   );
 };
