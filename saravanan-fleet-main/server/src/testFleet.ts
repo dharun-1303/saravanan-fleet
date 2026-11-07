@@ -118,6 +118,69 @@ async function runFleetVerificationTests() {
   console.log(`- Detected expired document: ${expiredPermitAlert.title}`);
   console.log('✅ Test 5 Passed: Alerts successfully generated.\n');
 
+  // Test 6: Security Gate Verification & Acknowledgment Workflow
+  console.log('[Test 6] Verifying Security Gate Workflow (Exit -> Dispatch -> Entry -> Completed)...');
+  const gateTrip = await store.addTrip({
+    vehicle_id: 'veh-003',
+    date: '2026-10-29',
+    from: 'Tirupattur Yard',
+    to: 'Vellore Substation',
+    start_km: 45000,
+    end_km: null,
+    remark: 'Transformer equipment transit',
+    amount: 1200,
+    driver: 'Sathish',
+  });
+
+  if (gateTrip.gate_status !== 'PENDING_EXIT' || gateTrip.status !== 'UNFINISHED') {
+    throw new Error(`Expected gate_status PENDING_EXIT and status UNFINISHED, got ${gateTrip.gate_status} / ${gateTrip.status}`);
+  }
+
+  // Gate Out approval
+  const gateOutTime = new Date().toISOString();
+  const dispatchedTrip = await store.updateTrip(gateTrip.trip_id, {
+    gate_status: 'DISPATCHED',
+    status: 'IN_TRANSIT',
+    trip_status: 'IN_TRANSIT',
+    gate_out_time: gateOutTime,
+    gate_out_by: 'Guard Ramesh (G-102)',
+  });
+
+  if (!dispatchedTrip || dispatchedTrip.gate_status !== 'DISPATCHED' || dispatchedTrip.status !== 'IN_TRANSIT' || dispatchedTrip.gate_out_by !== 'Guard Ramesh (G-102)') {
+    throw new Error('Gate Out dispatch update failed!');
+  }
+
+  // Driver return logged -> Pending entry
+  const pendingEntryTrip = await store.updateTrip(gateTrip.trip_id, {
+    end_km: 45140,
+    gate_status: 'PENDING_ENTRY',
+  });
+
+  if (!pendingEntryTrip || pendingEntryTrip.gate_status !== 'PENDING_ENTRY') {
+    throw new Error('Pending Entry update failed!');
+  }
+
+  // Gate In approval
+  const gateInTime = new Date().toISOString();
+  const completedTrip = await store.updateTrip(gateTrip.trip_id, {
+    gate_status: 'COMPLETED',
+    gate_in_time: gateInTime,
+    gate_in_by: 'Guard Ramesh (G-102)',
+    end_km: 45140,
+    status: 'COMPLETED',
+  });
+
+  if (
+    !completedTrip ||
+    completedTrip.gate_status !== 'COMPLETED' ||
+    completedTrip.status !== 'COMPLETED' ||
+    completedTrip.distance !== 140 ||
+    !completedTrip.gate_in_time
+  ) {
+    throw new Error('Gate In completion verification failed!');
+  }
+  console.log('✅ Test 6 Passed: Full Security Gate lifecycle verified (PENDING_EXIT -> DISPATCHED -> PENDING_ENTRY -> COMPLETED).\n');
+
   console.log('🎉 ALL INTEGRATION TESTS PASSED CLEANLY!');
 }
 
