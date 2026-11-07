@@ -35,6 +35,7 @@ import {
 } from 'recharts';
 import { KPICard } from '../components/KPICard';
 import { StatusBadge } from '../components/StatusBadge';
+import { GateStatusBadge } from '../components/GateStatusBadge';
 import { QRModal } from '../components/QRModal';
 import { Vehicle, Trip, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRecord, AnalyticsSummary } from '../types';
 import { api } from '../api/client';
@@ -482,7 +483,8 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     <th className="pb-2.5">Odometer (Start / End)</th>
                     <th className="pb-2.5">Distance</th>
                     <th className="pb-2.5">Amount</th>
-                    <th className="pb-2.5">Status</th>
+                    <th className="pb-2.5">Gate Status</th>
+                    <th className="pb-2.5">Trip Status</th>
                     <th className="pb-2.5">Remark / Driver</th>
                   </tr>
                 </thead>
@@ -499,6 +501,16 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                       <td className="py-2.5 font-semibold text-slate-900">{formatKM(t.distance)}</td>
                       <td className="py-2.5 text-slate-800 font-medium">{formatINR(t.amount)}</td>
                       <td className="py-2.5">
+                        <GateStatusBadge
+                          status={t.gate_status}
+                          gateOutTime={t.gate_out_time}
+                          gateOutBy={t.gate_out_by}
+                          gateInTime={t.gate_in_time}
+                          gateInBy={t.gate_in_by}
+                          showDetails={false}
+                        />
+                      </td>
+                      <td className="py-2.5">
                         <StatusBadge status={t.status} />
                       </td>
                       <td className="py-2.5 text-slate-500 text-[11px]">
@@ -508,7 +520,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                   ))}
                   {trips.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-400">No trips recorded for this vehicle.</td>
+                      <td colSpan={8} className="py-8 text-center text-slate-400">No trips recorded for this vehicle.</td>
                     </tr>
                   )}
                 </tbody>
