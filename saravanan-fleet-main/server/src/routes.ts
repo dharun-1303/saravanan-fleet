@@ -96,7 +96,24 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
   router.post('/trips', async (req: Request, res: Response) => {
     try {
-      const { vehicle_id, date, from, to, start_km, end_km, remark, amount, driver, employee } = req.body;
+      const {
+        vehicle_id,
+        date,
+        from,
+        to,
+        start_km,
+        end_km,
+        remark,
+        amount,
+        driver,
+        employee,
+        gate_status,
+        gate_out_time,
+        gate_out_by,
+        gate_in_time,
+        gate_in_by,
+      } = req.body;
+
       if (!vehicle_id || !date || start_km === undefined) {
         res.status(400).json({ error: 'vehicle_id, date, and start_km are required' });
         return;
@@ -119,6 +136,11 @@ export function createFleetRouter(dataStore: DataStore): Router {
         amount: Number(amount) || 0,
         driver: driver || '',
         employee: employee || '',
+        gate_status: gate_status || (numEnd !== null && numEnd >= numStart ? 'COMPLETED' : 'PENDING_EXIT'),
+        gate_out_time: gate_out_time || undefined,
+        gate_out_by: gate_out_by || undefined,
+        gate_in_time: gate_in_time || undefined,
+        gate_in_by: gate_in_by || undefined,
       });
       res.status(201).json(trip);
     } catch (err: any) {
@@ -442,7 +464,26 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
     if (type === 'trips') {
       const trips = dataStore.getTrips(vehicleId);
-      const headers = ['Trip ID', 'Vehicle', 'Date', 'From', 'To', 'Start KM', 'End KM', 'Distance (KM)', 'Remark', 'Amount (INR)', 'Status', 'Driver', 'Employee'];
+      const headers = [
+        'Trip ID',
+        'Vehicle',
+        'Date',
+        'From',
+        'To',
+        'Start KM',
+        'End KM',
+        'Distance (KM)',
+        'Remark',
+        'Amount (INR)',
+        'Status',
+        'Driver',
+        'Employee',
+        'Gate Status',
+        'Gate Out Time',
+        'Gate Out By',
+        'Gate In Time',
+        'Gate In By',
+      ];
       const rows = trips.map(t => [
         t.trip_id,
         vehicleMap.get(t.vehicle_id) || t.vehicle_id,
@@ -457,6 +498,11 @@ export function createFleetRouter(dataStore: DataStore): Router {
         t.status,
         `"${(t.driver || '').replace(/"/g, '""')}"`,
         `"${(t.employee || '').replace(/"/g, '""')}"`,
+        t.gate_status || '',
+        t.gate_out_time || '',
+        `"${(t.gate_out_by || '').replace(/"/g, '""')}"`,
+        t.gate_in_time || '',
+        `"${(t.gate_in_by || '').replace(/"/g, '""')}"`,
       ]);
       csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     } else if (type === 'fuel') {
