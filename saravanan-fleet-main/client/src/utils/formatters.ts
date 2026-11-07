@@ -23,6 +23,19 @@ export function formatDate(dateStr: string | null | undefined): string {
   });
 }
 
+export function formatDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 export function formatRelativeDays(days: number | null | undefined): { text: string; status: 'overdue' | 'urgent' | 'warning' | 'normal' } {
   if (days === null || days === undefined) return { text: '—', status: 'normal' };
   if (days < 0) {
