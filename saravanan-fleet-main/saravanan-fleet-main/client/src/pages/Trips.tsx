@@ -546,7 +546,7 @@ export const Trips: React.FC<TripsProps> = ({
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         {/* Shield Button: Gate Out when GATE SECURITY STATUS is 'Pending Exit' */}
-                        {isPendingExit && trip.status !== 'COMPLETED' && (
+                        {isPendingExit && !isGateCompleted && (
                           <button
                             type="button"
                             onClick={() => setGateOutTrip(trip)}
@@ -560,7 +560,7 @@ export const Trips: React.FC<TripsProps> = ({
                         )}
 
                         {/* Shield Button: Gate In when GATE SECURITY STATUS is 'In Transit' / 'Dispatched' */}
-                        {(isDispatched || isPendingEntry || (!trip.gate_in_time && trip.gate_out_time && trip.status !== 'COMPLETED')) && (
+                        {(isDispatched || isPendingEntry || (!trip.gate_in_time && trip.gate_out_time && !isGateCompleted)) && (
                           <button
                             type="button"
                             onClick={() => setGateInTrip(trip)}
