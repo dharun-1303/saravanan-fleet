@@ -76,6 +76,53 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Mobile Back Button & History Synchronization
+  useEffect(() => {
+    const validTabs: NavTab[] = ['dashboard', 'vehicles', 'trips', 'fuel', 'maintenance', 'documents', 'expenses', 'alerts', 'analytics', 'reports', 'settings'];
+    const hash = window.location.hash.replace(/^#/, '');
+    if (hash) {
+      const parts = hash.split('/');
+      const tabCandidate = parts[0] as NavTab;
+      if (validTabs.includes(tabCandidate)) {
+        setCurrentTab(tabCandidate);
+        if (parts[1]) {
+          setSelectedVehicleId(parts[1]);
+        }
+      }
+    } else {
+      window.history.replaceState({ tab: 'dashboard', vehicleId: null }, '', '#dashboard');
+    }
+
+    const handlePopState = (event: PopStateEvent) => {
+      // 1. Close mobile drawer or modal if open
+      setIsMobileMenuOpen(false);
+      setIsQRScannerOpen(false);
+
+      // 2. Restore tab and vehicle from history state or URL hash
+      const state = event.state;
+      if (state) {
+        setSelectedVehicleId(state.vehicleId || null);
+        if (state.tab && validTabs.includes(state.tab)) {
+          setCurrentTab(state.tab);
+        }
+      } else {
+        const currentHash = window.location.hash.replace(/^#/, '');
+        const parts = currentHash.split('/');
+        const tabCandidate = parts[0] as NavTab;
+        if (tabCandidate && validTabs.includes(tabCandidate)) {
+          setCurrentTab(tabCandidate);
+          setSelectedVehicleId(parts[1] || null);
+        } else {
+          setSelectedVehicleId(null);
+          setCurrentTab('dashboard');
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const fetchAllData = async () => {
     try {
       const [v, t, f, m, d, e, a, s, status, an] = await Promise.all([
@@ -134,17 +181,54 @@ export const App: React.FC = () => {
   const handleSelectVehicle = (vehicleId: string) => {
     setVehicleFromTab(currentTab);
     setSelectedVehicleId(vehicleId);
+    window.history.pushState({ tab: currentTab, vehicleId }, '', `#${currentTab}/${vehicleId}`);
   };
 
   const handleBackFromVehicle = () => {
-    setSelectedVehicleId(null);
-    setCurrentTab(vehicleFromTab);
+    if (window.history.state?.vehicleId) {
+      window.history.back();
+    } else {
+      setSelectedVehicleId(null);
+      setCurrentTab(vehicleFromTab);
+      window.history.replaceState({ tab: vehicleFromTab, vehicleId: null }, '', `#${vehicleFromTab}`);
+    }
   };
 
   // Tab switching resets single-vehicle view
   const handleTabChange = (tab: NavTab) => {
+    setIsMobileMenuOpen(false);
+    if (tab === currentTab && !selectedVehicleId) return;
     setSelectedVehicleId(null);
     setCurrentTab(tab);
+    window.history.pushState({ tab, vehicleId: null }, '', `#${tab}`);
+  };
+
+  const handleOpenMobileMenu = () => {
+    setIsMobileMenuOpen(true);
+    window.history.pushState({ modal: 'mobileMenu', tab: currentTab, vehicleId: selectedVehicleId }, '', window.location.hash);
+  };
+
+  const handleCloseMobileMenu = () => {
+    if (isMobileMenuOpen) {
+      setIsMobileMenuOpen(false);
+      if (window.history.state?.modal === 'mobileMenu') {
+        window.history.back();
+      }
+    }
+  };
+
+  const handleOpenQRScanner = () => {
+    setIsQRScannerOpen(true);
+    window.history.pushState({ modal: 'qrScanner', tab: currentTab, vehicleId: selectedVehicleId }, '', window.location.hash);
+  };
+
+  const handleCloseQRScanner = () => {
+    if (isQRScannerOpen) {
+      setIsQRScannerOpen(false);
+      if (window.history.state?.modal === 'qrScanner') {
+        window.history.back();
+      }
+    }
   };
 
   // Action handlers
@@ -328,7 +412,7 @@ export const App: React.FC = () => {
         onSelectTab={handleTabChange}
         alertCount={activeAlertCount}
         isOpen={isMobileMenuOpen}
-        onClose={() => setIsMobileMenuOpen(false)}
+        onClose={handleCloseMobileMenu}
       />
 
       {/* Main Workspace */}
@@ -338,13 +422,12 @@ export const App: React.FC = () => {
           syncStatus={syncStatus}
           isSyncing={isSyncing}
           onRefreshSync={handleManualSync}
-          onOpenQRScanner={() => setIsQRScannerOpen(true)}
+          onOpenQRScanner={handleOpenQRScanner}
           onQuickAddTrip={() => {
-            setSelectedVehicleId(null);
-            setCurrentTab('trips');
+            handleTabChange('trips');
           }}
           title={selectedVehicleId ? 'Vehicle History & Analytics' : tabTitles[currentTab]}
-          onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+          onOpenMobileMenu={handleOpenMobileMenu}
         />
 
         {/* Content Area */}
@@ -470,7 +553,7 @@ export const App: React.FC = () => {
       {/* QR Scanner Modal */}
       <QRScannerModal
         isOpen={isQRScannerOpen}
-        onClose={() => setIsQRScannerOpen(false)}
+        onClose={handleCloseQRScanner}
         vehicles={vehicles}
         onSelectVehicle={handleQRSelectVehicle}
       />
