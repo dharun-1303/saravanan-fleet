@@ -16,10 +16,28 @@ const __dirname = path.dirname(__filename);
 const app = express();
 
 // Middlewares
-// Restrict CORS to the configured client origin in production
-const allowedOrigin = process.env.CLIENT_ORIGIN || '*';
+// Restrict CORS to the configured client origin in production, automatically normalizing trailing slashes
+const rawOrigin = process.env.CLIENT_ORIGIN?.trim() || '*';
+const allowedOrigins = rawOrigin.split(',').map(o => o.trim().replace(/\/+$/, '')).filter(Boolean);
+
 app.use(cors({
-  origin: allowedOrigin,
+  origin: (origin, callback) => {
+    // Allow non-browser requests (e.g. curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (rawOrigin === '*' || allowedOrigins.includes('*')) {
+      return callback(null, true);
+    }
+    const cleanOrigin = origin.replace(/\/+$/, '');
+    if (
+      allowedOrigins.includes(cleanOrigin) ||
+      cleanOrigin.endsWith('.vercel.app') ||
+      cleanOrigin.includes('localhost') ||
+      cleanOrigin.includes('127.0.0.1')
+    ) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,

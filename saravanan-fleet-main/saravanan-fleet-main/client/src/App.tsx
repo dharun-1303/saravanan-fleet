@@ -29,7 +29,7 @@ import {
   SyncStatus,
   AnalyticsSummary,
 } from './types';
-import { api } from './api/client';
+import { api, API_BASE } from './api/client';
 
 export const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
@@ -100,8 +100,13 @@ export const App: React.FC = () => {
       setSettings(s);
       setSyncStatus(status);
       setAnalytics(an);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching fleet data:', err);
+      setSyncStatus(prev => ({
+        ...prev,
+        sync_state: 'error',
+        message: `Unable to connect to backend (${API_BASE}). If Render backend is sleeping, please allow ~50s for wake up.`,
+      }));
     }
   };
 

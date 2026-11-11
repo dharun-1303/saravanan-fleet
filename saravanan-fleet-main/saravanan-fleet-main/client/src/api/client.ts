@@ -1,9 +1,14 @@
 import { Vehicle, Trip, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRecord, SettingRecord, AlertItem, SyncStatus, AnalyticsSummary } from '../types';
 
-// In production when the backend is hosted separately (e.g. Render),
-// set VITE_API_URL to the full backend URL (e.g. https://your-app.onrender.com).
-// When using Vercel multi-service, leave it unset — relative '/api' is used.
-const API_BASE = (import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api');
+// Support both VITE_API_URL and VITE_API_BASE_URL, with automatic slash/api cleanup
+function resolveApiBase(): string {
+  const envUrl = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '').trim();
+  if (!envUrl) return '/api';
+  const clean = envUrl.replace(/\/+$/, '');
+  return clean.endsWith('/api') ? clean : `${clean}/api`;
+}
+
+export const API_BASE = resolveApiBase();
 
 export const api = {
   // Sync
