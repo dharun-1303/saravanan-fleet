@@ -44,6 +44,9 @@ export class GoogleSheetsClient {
     }
   }
 
+  private knownTabs: Set<string> = new Set();
+  private metadataFetched = false;
+
   public isConfigured(): boolean {
     return this.sheets !== null && Boolean(this.spreadsheetId);
   }
@@ -54,7 +57,10 @@ export class GoogleSheetsClient {
       const res = await this.sheets.spreadsheets.get({
         spreadsheetId: this.spreadsheetId,
       });
-      return res.data.sheets?.map(s => s.properties?.title || '').filter(Boolean) || [];
+      const titles = res.data.sheets?.map(s => s.properties?.title || '').filter(Boolean) || [];
+      this.knownTabs = new Set(titles);
+      this.metadataFetched = true;
+      return titles;
     } catch (err: any) {
       console.error('[GoogleSheetsClient] getSheetsMetadata error:', err.message);
       throw err;
@@ -75,31 +81,56 @@ export class GoogleSheetsClient {
     }
   }
 
+  public async batchGetSheetValues(sheetNames: string[]): Promise<Map<string, any[][]>> {
+    const result = new Map<string, any[][]>();
+    if (!this.sheets || !this.spreadsheetId || sheetNames.length === 0) return result;
+    try {
+      const ranges = sheetNames.map(name => `'${name}'!A:Z`);
+      const res = await this.sheets.spreadsheets.values.batchGet({
+        spreadsheetId: this.spreadsheetId,
+        ranges,
+      });
+      const valueRanges = res.data.valueRanges || [];
+      sheetNames.forEach((name, idx) => {
+        result.set(name, valueRanges[idx]?.values || []);
+      });
+      return result;
+    } catch (err: any) {
+      console.error('[GoogleSheetsClient] batchGetSheetValues error:', err.message);
+      return result;
+    }
+  }
+
   public async ensureTabExists(sheetName: string, headers: string[]): Promise<boolean> {
     if (!this.sheets || !this.spreadsheetId) return false;
     try {
-      const existing = await this.getSheetsMetadata();
-      if (!existing.includes(sheetName)) {
-        await this.sheets.spreadsheets.batchUpdate({
-          spreadsheetId: this.spreadsheetId,
-          requestBody: {
-            requests: [
-              {
-                addSheet: {
-                  properties: { title: sheetName },
-                },
-              },
-            ],
-          },
-        });
-        // Write header row
-        await this.sheets.spreadsheets.values.update({
-          spreadsheetId: this.spreadsheetId,
-          range: `'${sheetName}'!A1:${String.fromCharCode(64 + headers.length)}1`,
-          valueInputOption: 'USER_ENTERED',
-          requestBody: { values: [headers] },
-        });
+      if (this.knownTabs.has(sheetName)) return true;
+
+      if (!this.metadataFetched) {
+        await this.getSheetsMetadata();
+        if (this.knownTabs.has(sheetName)) return true;
       }
+
+      await this.sheets.spreadsheets.batchUpdate({
+        spreadsheetId: this.spreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              addSheet: {
+                properties: { title: sheetName },
+              },
+            },
+          ],
+        },
+      });
+      // Write header row
+      await this.sheets.spreadsheets.values.update({
+        spreadsheetId: this.spreadsheetId,
+        range: `'${sheetName}'!A1:${String.fromCharCode(64 + headers.length)}1`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: [headers] },
+      });
+      this.knownTabs.add(sheetName);
       return true;
     } catch (err: any) {
       console.error(`[GoogleSheetsClient] ensureTabExists error for ${sheetName}:`, err.message);

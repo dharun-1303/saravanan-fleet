@@ -23,6 +23,7 @@ export class DataStore {
   };
 
   private isSyncing = false;
+  private initialTabsEnsured = false;
   private pollingTimer: NodeJS.Timeout | null = null;
 
   constructor() {
@@ -204,27 +205,50 @@ export class DataStore {
     this.syncStatus.message = 'Synchronising with Google Sheets...';
 
     try {
-      // 1. Ensure required tabs exist (parallel)
-      await Promise.all([
-        this.sheetsClient.ensureTabExists('Vehicles', [
-          'vehicle_id', 'vehicle_name', 'registration_number', 'vehicle_type', 'fuel_type', 'photo_url', 'sheet_tab_name', 'active', 'notes'
-        ]),
-        this.sheetsClient.ensureTabExists('Fuel', [
-          'fuel_id', 'date', 'vehicle_id', 'odometer', 'fuel_type', 'litres', 'amount', 'vendor', 'remarks', 'recorded_by', 'receipt_url'
-        ]),
-        this.sheetsClient.ensureTabExists('Maintenance', [
-          'maintenance_id', 'service_date', 'vehicle_id', 'odometer', 'category', 'description', 'workshop', 'cost', 'next_service_due_km', 'next_service_due_date', 'notes', 'recorded_by'
-        ]),
-        this.sheetsClient.ensureTabExists('Documents', [
-          'document_id', 'vehicle_id', 'document_type', 'document_number', 'issue_date', 'expiry_date', 'issuer', 'file_url', 'notes', 'recorded_by'
-        ]),
-        this.sheetsClient.ensureTabExists('Expenses', [
-          'expense_id', 'date', 'vehicle_id', 'category', 'description', 'amount', 'vendor', 'receipt_url', 'notes', 'recorded_by'
-        ]),
-      ]);
+      // 1. Ensure required tabs exist only on initial startup
+      if (!this.initialTabsEnsured) {
+        await Promise.all([
+          this.sheetsClient.ensureTabExists('Vehicles', [
+            'vehicle_id', 'vehicle_name', 'registration_number', 'vehicle_type', 'fuel_type', 'photo_url', 'sheet_tab_name', 'active', 'notes'
+          ]),
+          this.sheetsClient.ensureTabExists('Fuel', [
+            'fuel_id', 'date', 'vehicle_id', 'odometer', 'fuel_type', 'litres', 'amount', 'vendor', 'remarks', 'recorded_by', 'receipt_url'
+          ]),
+          this.sheetsClient.ensureTabExists('Maintenance', [
+            'maintenance_id', 'service_date', 'vehicle_id', 'odometer', 'category', 'description', 'workshop', 'cost', 'next_service_due_km', 'next_service_due_date', 'notes', 'recorded_by'
+          ]),
+          this.sheetsClient.ensureTabExists('Documents', [
+            'document_id', 'vehicle_id', 'document_type', 'document_number', 'issue_date', 'expiry_date', 'issuer', 'file_url', 'notes', 'recorded_by'
+          ]),
+          this.sheetsClient.ensureTabExists('Expenses', [
+            'expense_id', 'date', 'vehicle_id', 'category', 'description', 'amount', 'vendor', 'receipt_url', 'notes', 'recorded_by'
+          ]),
+        ]);
+        this.initialTabsEnsured = true;
+      }
 
-      // 2. Read Vehicles tab
-      const vehicleRows = await this.sheetsClient.readSheetValues('Vehicles');
+      // 2. Discover available tabs and batch read all data in a single Google API request
+      const allTabs = await this.sheetsClient.getSheetsMetadata();
+      const coreTabs = ['Vehicles', 'Fuel', 'Maintenance', 'Documents', 'Expenses'];
+
+      // Find trip tabs matching existing vehicles
+      const vehicleTripTabMap = new Map<string, string>(); // vehicle_id -> tabName
+      for (const v of this.vehicles) {
+        const candidateTab = allTabs.find(t =>
+          (v.sheet_tab_name && t.toLowerCase() === v.sheet_tab_name.toLowerCase()) ||
+          t.toLowerCase().includes(v.registration_number.toLowerCase()) ||
+          t.toLowerCase().includes(v.vehicle_name.toLowerCase())
+        );
+        if (candidateTab) {
+          vehicleTripTabMap.set(v.vehicle_id, candidateTab);
+        }
+      }
+
+      const tabsToFetch = Array.from(new Set([...coreTabs, ...Array.from(vehicleTripTabMap.values())]));
+      const batchData = await this.sheetsClient.batchGetSheetValues(tabsToFetch);
+
+      // 3. Parse Vehicles tab
+      const vehicleRows = batchData.get('Vehicles') || [];
       if (vehicleRows.length > 1) {
         const parsedVehicles: Vehicle[] = [];
         for (let i = 1; i < vehicleRows.length; i++) {
@@ -247,70 +271,62 @@ export class DataStore {
         }
       }
 
-      // 3. Read Trips from vehicle-specific tabs (parallel)
-      const allTabs = await this.sheetsClient.getSheetsMetadata();
+      // 4. Parse Trips from vehicle-specific tabs
       const loadedTrips: Trip[] = [];
+      for (const v of this.vehicles) {
+        const candidateTab = vehicleTripTabMap.get(v.vehicle_id) || allTabs.find(t =>
+          (v.sheet_tab_name && t.toLowerCase() === v.sheet_tab_name.toLowerCase()) ||
+          t.toLowerCase().includes(v.registration_number.toLowerCase()) ||
+          t.toLowerCase().includes(v.vehicle_name.toLowerCase())
+        );
+        if (!candidateTab) continue;
 
-      const tripResults = await Promise.allSettled(
-        this.vehicles.map(async (v) => {
-          const candidateTab = allTabs.find(t =>
-            (v.sheet_tab_name && t.toLowerCase() === v.sheet_tab_name.toLowerCase()) ||
-            t.toLowerCase().includes(v.registration_number.toLowerCase()) ||
-            t.toLowerCase().includes(v.vehicle_name.toLowerCase())
-          );
-          if (!candidateTab) return [];
-          const tabRows = await this.sheetsClient.readSheetValues(candidateTab);
-          const vTrips: Trip[] = [];
-          if (tabRows.length > 1) {
-            for (let i = 1; i < tabRows.length; i++) {
-              const r = tabRows[i];
-              if (!r[0] || (r[0] || '').toString().toUpperCase().includes('TOTAL')) continue;
-              const startKm = parseFloat(r[3]) || 0;
-              const endKm = r[4] ? parseFloat(r[4]) : null;
-              const dist = parseFloat(r[5]) || (endKm ? Math.max(0, endKm - startKm) : 0);
-              const rawGate = (r[8] || '').toString().trim() as GateStatus;
-              const defaultGate: GateStatus = endKm && endKm >= startKm ? 'COMPLETED' : 'PENDING_EXIT';
-              const gateStatus: GateStatus = ['PENDING_EXIT', 'DISPATCHED', 'PENDING_ENTRY', 'COMPLETED'].includes(rawGate)
-                ? rawGate
-                : defaultGate;
+        const tabRows = batchData.get(candidateTab) || [];
+        if (tabRows.length > 1) {
+          for (let i = 1; i < tabRows.length; i++) {
+            const r = tabRows[i];
+            if (!r[0] || (r[0] || '').toString().toUpperCase().includes('TOTAL')) continue;
+            const startKm = parseFloat(r[3]) || 0;
+            const endKm = r[4] ? parseFloat(r[4]) : null;
+            const dist = parseFloat(r[5]) || (endKm ? Math.max(0, endKm - startKm) : 0);
+            const rawGate = (r[8] || '').toString().trim() as GateStatus;
+            const defaultGate: GateStatus = endKm && endKm >= startKm ? 'COMPLETED' : 'PENDING_EXIT';
+            const gateStatus: GateStatus = ['PENDING_EXIT', 'DISPATCHED', 'PENDING_ENTRY', 'COMPLETED'].includes(rawGate)
+              ? rawGate
+              : defaultGate;
 
-              vTrips.push({
-                trip_id: `trip-s-${candidateTab}-${i}`,
-                vehicle_id: v.vehicle_id,
-                date: (r[0] || '').toString(),
-                from: (r[1] || '').toString(),
-                to: (r[2] || '').toString(),
-                start_km: startKm,
-                end_km: endKm,
-                distance: dist,
-                remark: (r[6] || '').toString(),
-                amount: parseFloat(r[7]) || 0,
-                status: endKm && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED',
-                sheet_name: candidateTab,
-                row_index: i + 1,
-                gate_status: gateStatus,
-                gate_out_time: (r[9] || '').toString() || undefined,
-                gate_out_by: (r[10] || '').toString() || undefined,
-                gate_in_time: (r[11] || '').toString() || undefined,
-                gate_in_by: (r[12] || '').toString() || undefined,
-              });
-            }
+            loadedTrips.push({
+              trip_id: `trip-s-${candidateTab}-${i}`,
+              vehicle_id: v.vehicle_id,
+              date: (r[0] || '').toString(),
+              from: (r[1] || '').toString(),
+              to: (r[2] || '').toString(),
+              start_km: startKm,
+              end_km: endKm,
+              distance: dist,
+              remark: (r[6] || '').toString(),
+              amount: parseFloat(r[7]) || 0,
+              status: endKm && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED',
+              sheet_name: candidateTab,
+              row_index: i + 1,
+              gate_status: gateStatus,
+              gate_out_time: (r[9] || '').toString() || undefined,
+              gate_out_by: (r[10] || '').toString() || undefined,
+              gate_in_time: (r[11] || '').toString() || undefined,
+              gate_in_by: (r[12] || '').toString() || undefined,
+            });
           }
-          return vTrips;
-        })
-      );
-      tripResults.forEach(r => { if (r.status === 'fulfilled') loadedTrips.push(...r.value); });
+        }
+      }
 
       // Keep trips in sync with Sheets - unconditionally update so deletions are reflected
       this.trips = loadedTrips;
 
-      // 4. Read registers in parallel
-      const [fuelRows, maintRows4, docRows4, expRows4] = await Promise.all([
-        this.sheetsClient.readSheetValues('Fuel'),
-        this.sheetsClient.readSheetValues('Maintenance'),
-        this.sheetsClient.readSheetValues('Documents'),
-        this.sheetsClient.readSheetValues('Expenses'),
-      ]);
+      // 5. Parse Fuel, Maintenance, Documents, Expenses from the batch data
+      const fuelRows = batchData.get('Fuel') || [];
+      const maintRows4 = batchData.get('Maintenance') || [];
+      const docRows4 = batchData.get('Documents') || [];
+      const expRows4 = batchData.get('Expenses') || [];
 
       const parsedFuel: FuelRecord[] = [];
       if (fuelRows.length > 1) {

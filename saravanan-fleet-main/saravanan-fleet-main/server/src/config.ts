@@ -33,7 +33,7 @@ if ((rawCredentialsPath.startsWith('"') && rawCredentialsPath.endsWith('"')) ||
 const CREDENTIALS_JSON = (process.env.GOOGLE_CREDENTIALS_JSON || '').trim();
 const CLIENT_EMAIL = (process.env.GOOGLE_CLIENT_EMAIL || '').trim();
 const PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n') || '';
-const SYNC_INTERVAL_MS = parseInt(process.env.SYNC_INTERVAL_MS || '20000', 10);
+const SYNC_INTERVAL_MS = parseInt(process.env.SYNC_INTERVAL_MS || '60000', 10);
 
 // Resolve relative credentials path against server directory or cwd
 let resolvedCredentialsPath = '';

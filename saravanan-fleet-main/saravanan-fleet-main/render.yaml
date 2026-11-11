@@ -35,4 +35,4 @@ services:
 
       # ── Optional tuning ───────────────────────────────────────────────────
       - key: SYNC_INTERVAL_MS
-        value: 20000
+        value: 60000
