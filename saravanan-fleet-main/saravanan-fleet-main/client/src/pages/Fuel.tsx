@@ -12,6 +12,8 @@ interface FuelProps {
   onUpdateFuel: (id: string, data: Partial<FuelRecord>) => Promise<void>;
   onDeleteFuel?: (id: string) => Promise<void>;
   onExportCSV: () => void;
+  preselectedVehicleId?: string | null;
+  onPreselectedConsumed?: () => void;
 }
 
 export const FuelPage: React.FC<FuelProps> = ({
@@ -21,6 +23,8 @@ export const FuelPage: React.FC<FuelProps> = ({
   onUpdateFuel,
   onDeleteFuel,
   onExportCSV,
+  preselectedVehicleId,
+  onPreselectedConsumed,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState<string>('all');
@@ -44,6 +48,49 @@ export const FuelPage: React.FC<FuelProps> = ({
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Auto-open Add Fuel modal when redirected with preselected vehicle
+  React.useEffect(() => {
+    if (preselectedVehicleId && vehicles.length > 0) {
+      const clean = preselectedVehicleId.trim().toLowerCase();
+      const cleanNoSpace = clean.replace(/[\s\-_]/g, '');
+      const matched = vehicles.find(v => {
+        const vid = (v.vehicle_id || '').toLowerCase();
+        const reg = (v.registration_number || '').toLowerCase();
+        const name = (v.vehicle_name || '').toLowerCase();
+        const tab = (v.sheet_tab_name || '').toLowerCase();
+        return (
+          vid === clean ||
+          reg === clean ||
+          name === clean ||
+          tab === clean ||
+          vid.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+          reg.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+          name.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+          tab.replace(/[\s\-_]/g, '') === cleanNoSpace
+        );
+      });
+      const targetVehicleId = matched ? matched.vehicle_id : preselectedVehicleId;
+
+      setEditingFuel(null);
+      setFormData({
+        vehicle_id: targetVehicleId,
+        date: new Date().toISOString().split('T')[0],
+        odometer: '',
+        fuel_type: matched?.fuel_type || 'Diesel',
+        litres: '',
+        amount: '',
+        vendor: '',
+        remarks: '',
+        recorded_by: 'Fleet Incharge',
+        receipt_url: '',
+      });
+      setSelectedVehicle(targetVehicleId);
+      setFormError(null);
+      setIsModalOpen(true);
+      onPreselectedConsumed?.();
+    }
+  }, [preselectedVehicleId, vehicles]);
 
   const vehicleMap = new Map(vehicles.map(v => [v.vehicle_id, `${v.vehicle_name} (${v.registration_number})`]));
 

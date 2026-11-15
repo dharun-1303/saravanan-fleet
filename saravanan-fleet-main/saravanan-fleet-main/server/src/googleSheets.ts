@@ -46,25 +46,41 @@ export class GoogleSheetsClient {
 
   private knownTabs: Set<string> = new Set();
   private metadataFetched = false;
+  private lastMetadataTime = 0;
+  private metadataPromise: Promise<string[]> | null = null;
+  private readonly METADATA_TTL_MS = 60000; // Cache metadata for 60 seconds
 
   public isConfigured(): boolean {
     return this.sheets !== null && Boolean(this.spreadsheetId);
   }
 
-  public async getSheetsMetadata(): Promise<string[]> {
+  public async getSheetsMetadata(forceRefresh = false): Promise<string[]> {
     if (!this.sheets || !this.spreadsheetId) return [];
-    try {
-      const res = await this.sheets.spreadsheets.get({
-        spreadsheetId: this.spreadsheetId,
-      });
-      const titles = res.data.sheets?.map(s => s.properties?.title || '').filter(Boolean) || [];
-      this.knownTabs = new Set(titles);
-      this.metadataFetched = true;
-      return titles;
-    } catch (err: any) {
-      console.error('[GoogleSheetsClient] getSheetsMetadata error:', err.message);
-      throw err;
+    const now = Date.now();
+    if (!forceRefresh && this.metadataFetched && now - this.lastMetadataTime < this.METADATA_TTL_MS) {
+      return Array.from(this.knownTabs);
     }
+    if (this.metadataPromise) {
+      return this.metadataPromise;
+    }
+    this.metadataPromise = (async () => {
+      try {
+        const res = await this.sheets!.spreadsheets.get({
+          spreadsheetId: this.spreadsheetId,
+        });
+        const titles = res.data.sheets?.map(s => s.properties?.title || '').filter(Boolean) || [];
+        this.knownTabs = new Set(titles);
+        this.metadataFetched = true;
+        this.lastMetadataTime = Date.now();
+        return titles;
+      } catch (err: any) {
+        console.error('[GoogleSheetsClient] getSheetsMetadata error:', err.message);
+        throw err;
+      } finally {
+        this.metadataPromise = null;
+      }
+    })();
+    return this.metadataPromise;
   }
 
   public async readSheetValues(sheetName: string): Promise<any[][]> {
@@ -85,7 +101,7 @@ export class GoogleSheetsClient {
     const result = new Map<string, any[][]>();
     if (!this.sheets || !this.spreadsheetId || sheetNames.length === 0) return result;
     try {
-      const ranges = sheetNames.map(name => `'${name}'!A:Z`);
+      const ranges = sheetNames.map(name => `'${name}'!A:N`);
       const res = await this.sheets.spreadsheets.values.batchGet({
         spreadsheetId: this.spreadsheetId,
         ranges,

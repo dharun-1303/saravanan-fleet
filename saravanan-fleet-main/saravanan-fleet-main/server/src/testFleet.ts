@@ -181,6 +181,34 @@ async function runFleetVerificationTests() {
   }
   console.log('✅ Test 6 Passed: Full Security Gate lifecycle verified (PENDING_EXIT -> DISPATCHED -> PENDING_ENTRY -> COMPLETED).\n');
 
+  // Test 7: Enroute stops and multi-field vehicle lookup
+  console.log('[Test 7] Verifying Enroute stops and vehicle lookup...');
+  const lookupBmw = store.getVehicleById('bmw');
+  if (!lookupBmw || lookupBmw.vehicle_id !== 'veh-001') {
+    throw new Error('Vehicle lookup by vehicle_name "bmw" failed!');
+  }
+  const lookupByReg = store.getVehicleById('TN87E5753');
+  if (!lookupByReg || lookupByReg.vehicle_id !== 'veh-001') {
+    throw new Error('Vehicle lookup by reg "TN87E5753" failed!');
+  }
+
+  const enrouteTrip = await store.addTrip({
+    vehicle_id: 'veh-001',
+    date: '2026-10-29',
+    from: 'Poonamallee Yard',
+    to: 'Guindy Substation',
+    enroute: 'Poonamallee, Guindy',
+    start_km: 12600,
+    end_km: 12645,
+    remark: 'Equipment delivery via Poonamallee',
+    amount: 800,
+  });
+
+  if (enrouteTrip.enroute !== 'Poonamallee, Guindy') {
+    throw new Error(`Enroute trip check failed. Expected "Poonamallee, Guindy", got "${enrouteTrip.enroute}"`);
+  }
+  console.log('✅ Test 7 Passed: Enroute stops and multi-field vehicle lookup verified.\n');
+
   console.log('🎉 ALL INTEGRATION TESTS PASSED CLEANLY!');
 }
 

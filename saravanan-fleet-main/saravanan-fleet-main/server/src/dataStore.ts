@@ -23,6 +23,7 @@ export class DataStore {
   };
 
   private isSyncing = false;
+  private activeSyncPromise: Promise<SyncStatus> | null = null;
   private initialTabsEnsured = false;
   private pollingTimer: NodeJS.Timeout | null = null;
 
@@ -192,6 +193,18 @@ export class DataStore {
   }
 
   public async syncWithGoogleSheets(): Promise<SyncStatus> {
+    if (this.activeSyncPromise) {
+      return this.activeSyncPromise;
+    }
+    this.activeSyncPromise = this._executeSyncWithGoogleSheets();
+    try {
+      return await this.activeSyncPromise;
+    } finally {
+      this.activeSyncPromise = null;
+    }
+  }
+
+  private async _executeSyncWithGoogleSheets(): Promise<SyncStatus> {
     if (!this.sheetsClient.isConfigured()) {
       this.syncStatus.last_synced_at = new Date().toISOString();
       this.syncStatus.sync_state = 'idle';
@@ -205,31 +218,44 @@ export class DataStore {
     this.syncStatus.message = 'Synchronising with Google Sheets...';
 
     try {
-      // 1. Ensure required tabs exist only on initial startup
-      if (!this.initialTabsEnsured) {
-        await Promise.all([
-          this.sheetsClient.ensureTabExists('Vehicles', [
-            'vehicle_id', 'vehicle_name', 'registration_number', 'vehicle_type', 'fuel_type', 'photo_url', 'sheet_tab_name', 'active', 'notes'
-          ]),
-          this.sheetsClient.ensureTabExists('Fuel', [
-            'fuel_id', 'date', 'vehicle_id', 'odometer', 'fuel_type', 'litres', 'amount', 'vendor', 'remarks', 'recorded_by', 'receipt_url'
-          ]),
-          this.sheetsClient.ensureTabExists('Maintenance', [
-            'maintenance_id', 'service_date', 'vehicle_id', 'odometer', 'category', 'description', 'workshop', 'cost', 'next_service_due_km', 'next_service_due_date', 'notes', 'recorded_by'
-          ]),
-          this.sheetsClient.ensureTabExists('Documents', [
-            'document_id', 'vehicle_id', 'document_type', 'document_number', 'issue_date', 'expiry_date', 'issuer', 'file_url', 'notes', 'recorded_by'
-          ]),
-          this.sheetsClient.ensureTabExists('Expenses', [
-            'expense_id', 'date', 'vehicle_id', 'category', 'description', 'amount', 'vendor', 'receipt_url', 'notes', 'recorded_by'
-          ]),
-        ]);
-        this.initialTabsEnsured = true;
-      }
-
-      // 2. Discover available tabs and batch read all data in a single Google API request
+      // 1. Discover available tabs once with cached metadata
       const allTabs = await this.sheetsClient.getSheetsMetadata();
       const coreTabs = ['Vehicles', 'Fuel', 'Maintenance', 'Documents', 'Expenses'];
+
+      // 2. Ensure required tabs exist only if missing
+      if (!this.initialTabsEnsured) {
+        const missingCore = coreTabs.filter(ct => !allTabs.some(t => t.toLowerCase() === ct.toLowerCase()));
+        if (missingCore.length > 0) {
+          const creationPromises: Promise<boolean>[] = [];
+          if (missingCore.includes('Vehicles')) {
+            creationPromises.push(this.sheetsClient.ensureTabExists('Vehicles', [
+              'vehicle_id', 'vehicle_name', 'registration_number', 'vehicle_type', 'fuel_type', 'photo_url', 'sheet_tab_name', 'active', 'notes'
+            ]));
+          }
+          if (missingCore.includes('Fuel')) {
+            creationPromises.push(this.sheetsClient.ensureTabExists('Fuel', [
+              'fuel_id', 'date', 'vehicle_id', 'odometer', 'fuel_type', 'litres', 'amount', 'vendor', 'remarks', 'recorded_by', 'receipt_url'
+            ]));
+          }
+          if (missingCore.includes('Maintenance')) {
+            creationPromises.push(this.sheetsClient.ensureTabExists('Maintenance', [
+              'maintenance_id', 'service_date', 'vehicle_id', 'odometer', 'category', 'description', 'workshop', 'cost', 'next_service_due_km', 'next_service_due_date', 'notes', 'recorded_by'
+            ]));
+          }
+          if (missingCore.includes('Documents')) {
+            creationPromises.push(this.sheetsClient.ensureTabExists('Documents', [
+              'document_id', 'vehicle_id', 'document_type', 'document_number', 'issue_date', 'expiry_date', 'issuer', 'file_url', 'notes', 'recorded_by'
+            ]));
+          }
+          if (missingCore.includes('Expenses')) {
+            creationPromises.push(this.sheetsClient.ensureTabExists('Expenses', [
+              'expense_id', 'date', 'vehicle_id', 'category', 'description', 'amount', 'vendor', 'receipt_url', 'notes', 'recorded_by'
+            ]));
+          }
+          await Promise.all(creationPromises);
+        }
+        this.initialTabsEnsured = true;
+      }
 
       // Find trip tabs matching existing vehicles
       const vehicleTripTabMap = new Map<string, string>(); // vehicle_id -> tabName
@@ -244,11 +270,14 @@ export class DataStore {
         }
       }
 
-      const tabsToFetch = Array.from(new Set([...coreTabs, ...Array.from(vehicleTripTabMap.values())]));
+      // Only fetch tabs that actually exist in the spreadsheet
+      const rawTabsToFetch = Array.from(new Set([...coreTabs, ...Array.from(vehicleTripTabMap.values())]));
+      const tabsToFetch = rawTabsToFetch.filter(name => allTabs.some(t => t.toLowerCase() === name.toLowerCase()));
       const batchData = await this.sheetsClient.batchGetSheetValues(tabsToFetch);
 
       // 3. Parse Vehicles tab
-      const vehicleRows = batchData.get('Vehicles') || [];
+      const vehicleTabKey = allTabs.find(t => t.toLowerCase() === 'vehicles') || 'Vehicles';
+      const vehicleRows = batchData.get(vehicleTabKey) || batchData.get('Vehicles') || [];
       if (vehicleRows.length > 1) {
         const parsedVehicles: Vehicle[] = [];
         for (let i = 1; i < vehicleRows.length; i++) {
@@ -283,6 +312,9 @@ export class DataStore {
 
         const tabRows = batchData.get(candidateTab) || [];
         if (tabRows.length > 1) {
+          const header = (tabRows[0] || []).map((h: any) => (h || '').toString().toUpperCase().trim());
+          const enrouteColIdx = header.findIndex((h: string) => h.includes('ENROUTE') || h.includes('VIA'));
+
           for (let i = 1; i < tabRows.length; i++) {
             const r = tabRows[i];
             if (!r[0] || (r[0] || '').toString().toUpperCase().includes('TOTAL')) continue;
@@ -295,12 +327,17 @@ export class DataStore {
               ? rawGate
               : defaultGate;
 
+            const enrouteVal = enrouteColIdx !== -1
+              ? (r[enrouteColIdx] || '').toString().trim()
+              : (r[13] || '').toString().trim();
+
             loadedTrips.push({
               trip_id: `trip-s-${candidateTab}-${i}`,
               vehicle_id: v.vehicle_id,
               date: (r[0] || '').toString(),
               from: (r[1] || '').toString(),
               to: (r[2] || '').toString(),
+              enroute: enrouteVal || undefined,
               start_km: startKm,
               end_km: endKm,
               distance: dist,
@@ -454,32 +491,60 @@ export class DataStore {
   }
 
   public getVehicleById(id: string): Vehicle | undefined {
-    return this.vehicles.find(v => v.vehicle_id === id || v.registration_number.toLowerCase() === id.toLowerCase());
+    if (!id) return undefined;
+    const clean = id.trim().toLowerCase();
+    const cleanNoSpace = clean.replace(/[\s\-_]/g, '');
+    return this.vehicles.find(v => {
+      const vid = (v.vehicle_id || '').toLowerCase();
+      const reg = (v.registration_number || '').toLowerCase();
+      const name = (v.vehicle_name || '').toLowerCase();
+      const tab = (v.sheet_tab_name || '').toLowerCase();
+      return (
+        vid === clean ||
+        reg === clean ||
+        name === clean ||
+        tab === clean ||
+        vid.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+        reg.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+        name.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+        tab.replace(/[\s\-_]/g, '') === cleanNoSpace
+      );
+    });
   }
 
   public getTrips(vehicleId?: string): Trip[] {
     if (!vehicleId) return this.trips;
-    return this.trips.filter(t => t.vehicle_id === vehicleId);
+    const v = this.getVehicleById(vehicleId);
+    const targetId = v ? v.vehicle_id : vehicleId;
+    return this.trips.filter(t => t.vehicle_id === targetId || t.vehicle_id === vehicleId);
   }
 
   public getFuelRecords(vehicleId?: string): FuelRecord[] {
     if (!vehicleId) return this.fuelRecords;
-    return this.fuelRecords.filter(f => f.vehicle_id === vehicleId);
+    const v = this.getVehicleById(vehicleId);
+    const targetId = v ? v.vehicle_id : vehicleId;
+    return this.fuelRecords.filter(f => f.vehicle_id === targetId || f.vehicle_id === vehicleId);
   }
 
   public getMaintenanceRecords(vehicleId?: string): MaintenanceRecord[] {
     if (!vehicleId) return this.maintenanceRecords;
-    return this.maintenanceRecords.filter(m => m.vehicle_id === vehicleId);
+    const v = this.getVehicleById(vehicleId);
+    const targetId = v ? v.vehicle_id : vehicleId;
+    return this.maintenanceRecords.filter(m => m.vehicle_id === targetId || m.vehicle_id === vehicleId);
   }
 
   public getDocumentRecords(vehicleId?: string): DocumentRecord[] {
     if (!vehicleId) return this.documentRecords;
-    return this.documentRecords.filter(d => d.vehicle_id === vehicleId);
+    const v = this.getVehicleById(vehicleId);
+    const targetId = v ? v.vehicle_id : vehicleId;
+    return this.documentRecords.filter(d => d.vehicle_id === targetId || d.vehicle_id === vehicleId);
   }
 
   public getExpenseRecords(vehicleId?: string): ExpenseRecord[] {
     if (!vehicleId) return this.expenseRecords;
-    return this.expenseRecords.filter(e => e.vehicle_id === vehicleId);
+    const v = this.getVehicleById(vehicleId);
+    const targetId = v ? v.vehicle_id : vehicleId;
+    return this.expenseRecords.filter(e => e.vehicle_id === targetId || e.vehicle_id === vehicleId);
   }
 
   public getSettings(): SettingRecord[] {
@@ -566,6 +631,7 @@ export class DataStore {
       status,
       trip_status: status,
       gate_status,
+      enroute: tripData.enroute ? tripData.enroute.trim() : undefined,
       gate_out_time: tripData.gate_out_time || undefined,
       gate_out_by: tripData.gate_out_by || undefined,
       gate_in_time: tripData.gate_in_time || undefined,
@@ -579,7 +645,7 @@ export class DataStore {
         const targetTab = vehicle?.sheet_tab_name || 'Trips';
         await this.sheetsClient.ensureTabExists(targetTab, [
           'DATE', 'FROM', 'TO', 'START KM', 'END KM', 'DISTANCE', 'REMARK', 'AMOUNT',
-          'GATE STATUS', 'GATE OUT TIME', 'GATE OUT BY', 'GATE IN TIME', 'GATE IN BY'
+          'GATE STATUS', 'GATE OUT TIME', 'GATE OUT BY', 'GATE IN TIME', 'GATE IN BY', 'ENROUTE'
         ]);
         const res = await this.sheetsClient.appendRow(targetTab, [
           newTrip.date,
@@ -595,6 +661,7 @@ export class DataStore {
           newTrip.gate_out_by || '',
           newTrip.gate_in_time || '',
           newTrip.gate_in_by || '',
+          newTrip.enroute || '',
         ]);
         newTrip.sheet_name = targetTab;
         newTrip.row_index = res.rowIndex;
@@ -611,6 +678,9 @@ export class DataStore {
     
     const existing = this.trips[index];
     const merged = { ...existing, ...updates };
+    if (updates.enroute !== undefined) {
+      merged.enroute = updates.enroute ? updates.enroute.trim() : undefined;
+    }
     
     if (merged.end_km !== null && merged.end_km !== undefined && merged.end_km >= merged.start_km) {
       merged.distance = merged.end_km - merged.start_km;
@@ -653,6 +723,7 @@ export class DataStore {
           merged.gate_out_by || '',
           merged.gate_in_time || '',
           merged.gate_in_by || '',
+          merged.enroute || '',
         ]);
       } catch (err: any) {
         console.error('[DataStore] Error updating trip in Sheets:', err.message);

@@ -179,7 +179,7 @@ interface GateInModalProps {
   trip: Trip | null;
   vehicle?: Vehicle;
   onClose: () => void;
-  onConfirm: (data: { gate_in_by: string; gate_in_time: string; end_km: number }) => Promise<void>;
+  onConfirm: (data: { gate_in_by: string; gate_in_time: string; end_km: number; enroute?: string }) => Promise<void>;
 }
 
 export const GateInModal: React.FC<GateInModalProps> = ({
@@ -191,6 +191,8 @@ export const GateInModal: React.FC<GateInModalProps> = ({
 }) => {
   const [securityName, setSecurityName] = useState('');
   const [endKmInput, setEndKmInput] = useState('');
+  const [hasEnroute, setHasEnroute] = useState<'No' | 'Yes'>('No');
+  const [enrouteInput, setEnrouteInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -198,6 +200,8 @@ export const GateInModal: React.FC<GateInModalProps> = ({
     if (isOpen && trip) {
       setSecurityName(trip.gate_in_by || '');
       setEndKmInput(trip.end_km !== null && trip.end_km !== undefined ? trip.end_km.toString() : '');
+      setHasEnroute(trip.enroute && trip.enroute.trim() ? 'Yes' : 'No');
+      setEnrouteInput(trip.enroute || '');
       setError(null);
     }
   }, [isOpen, trip]);
@@ -235,6 +239,7 @@ export const GateInModal: React.FC<GateInModalProps> = ({
         gate_in_by: name,
         gate_in_time: new Date().toISOString(),
         end_km: numEnd,
+        enroute: hasEnroute === 'Yes' && enrouteInput.trim() ? enrouteInput.trim() : '',
       });
       onClose();
     } catch (err: any) {
@@ -301,6 +306,57 @@ export const GateInModal: React.FC<GateInModalProps> = ({
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Conditional Enroute Question & Toggle */}
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="font-semibold text-slate-800 text-xs">
+                Did this trip have any enroute stops?
+              </label>
+              <div className="inline-flex rounded-lg p-0.5 bg-slate-200 font-semibold text-xs flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHasEnroute('No');
+                    setEnrouteInput('');
+                  }}
+                  className={`px-3 py-1 rounded-md transition-all ${
+                    hasEnroute === 'No'
+                      ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  No
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHasEnroute('Yes')}
+                  className={`px-3 py-1 rounded-md transition-all ${
+                    hasEnroute === 'Yes'
+                      ? 'bg-blue-600 text-white shadow-2xs font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Yes
+                </button>
+              </div>
+            </div>
+
+            {hasEnroute === 'Yes' && (
+              <div className="pt-2 border-t border-slate-200 animate-in fade-in duration-150">
+                <label className="font-semibold text-slate-700 block mb-1">
+                  Enroute / Via Location(s)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Poonamallee, Guindy"
+                  value={enrouteInput}
+                  onChange={e => setEnrouteInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 shadow-2xs font-medium"
+                />
+              </div>
+            )}
           </div>
 
           {/* End KM Verification Input */}

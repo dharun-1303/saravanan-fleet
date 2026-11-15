@@ -131,7 +131,7 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
     ...trips.map(t => ({
       date: t.date,
       type: 'Trip',
-      title: `${t.from} → ${t.to}`,
+      title: t.enroute ? `${t.from} → (via ${t.enroute}) → ${t.to}` : `${t.from} → ${t.to}`,
       desc: `${t.distance} km • ${t.remark || 'Regular run'}`,
       amount: t.amount,
     })),
@@ -493,7 +493,19 @@ export const VehicleDetail: React.FC<VehicleDetailProps> = ({
                     <tr key={t.trip_id} className="hover:bg-slate-50/80">
                       <td className="py-2.5 font-medium text-slate-800">{formatDate(t.date)}</td>
                       <td className="py-2.5 text-slate-700">
-                        {t.from} <span className="text-slate-400">→</span> {t.to}
+                        {t.enroute ? (
+                          <span>
+                            {t.from || 'Origin'}{' '}
+                            <span className="text-blue-500 font-bold">→</span>{' '}
+                            <span className="text-blue-700 font-semibold">(via {t.enroute})</span>{' '}
+                            <span className="text-blue-500 font-bold">→</span>{' '}
+                            {t.to || 'Destination'}
+                          </span>
+                        ) : (
+                          <span>
+                            {t.from || '—'} <span className="text-slate-400">→</span> {t.to || '—'}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 text-slate-600 font-mono">
                         {t.start_km.toLocaleString('en-IN')} / {t.end_km ? t.end_km.toLocaleString('en-IN') : '—'}

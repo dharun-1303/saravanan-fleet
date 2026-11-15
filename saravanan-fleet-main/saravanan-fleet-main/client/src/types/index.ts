@@ -19,6 +19,7 @@ export interface Trip {
   date: string;
   from: string;
   to: string;
+  enroute?: string;
   start_km: number;
   end_km?: number | null;
   distance: number;

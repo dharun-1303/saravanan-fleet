@@ -65,6 +65,8 @@ export const Trips: React.FC<TripsProps> = ({
     date: new Date().toISOString().split('T')[0],
     from: '',
     to: '',
+    has_enroute: 'No' as 'No' | 'Yes',
+    enroute: '',
     start_km: '',
     end_km: '',
     remark: '',
@@ -113,15 +115,37 @@ export const Trips: React.FC<TripsProps> = ({
     [trips]
   );
 
-  // Auto-open Add Trip modal when arriving from QR scan
+  // Auto-open Add Trip modal when arriving from QR scan or Vehicle page action
   useEffect(() => {
     if (preselectedVehicleId && vehicles.length > 0) {
+      const clean = preselectedVehicleId.trim().toLowerCase();
+      const cleanNoSpace = clean.replace(/[\s\-_]/g, '');
+      const matched = vehicles.find(v => {
+        const vid = (v.vehicle_id || '').toLowerCase();
+        const reg = (v.registration_number || '').toLowerCase();
+        const name = (v.vehicle_name || '').toLowerCase();
+        const tab = (v.sheet_tab_name || '').toLowerCase();
+        return (
+          vid === clean ||
+          reg === clean ||
+          name === clean ||
+          tab === clean ||
+          vid.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+          reg.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+          name.replace(/[\s\-_]/g, '') === cleanNoSpace ||
+          tab.replace(/[\s\-_]/g, '') === cleanNoSpace
+        );
+      });
+      const targetVehicleId = matched ? matched.vehicle_id : preselectedVehicleId;
+
       setEditingTrip(null);
       setFormData({
-        vehicle_id: preselectedVehicleId,
+        vehicle_id: targetVehicleId,
         date: new Date().toISOString().split('T')[0],
         from: '',
         to: '',
+        has_enroute: 'No',
+        enroute: '',
         start_km: '',
         end_km: '',
         remark: '',
@@ -129,11 +153,12 @@ export const Trips: React.FC<TripsProps> = ({
         driver: '',
         employee: '',
       });
+      setSelectedVehicle(targetVehicleId);
       setFormError(null);
       setIsModalOpen(true);
       onPreselectedConsumed?.();
     }
-  }, [preselectedVehicleId, vehicles.length]);
+  }, [preselectedVehicleId, vehicles]);
 
   const handleOpenAdd = () => {
     setEditingTrip(null);
@@ -142,6 +167,8 @@ export const Trips: React.FC<TripsProps> = ({
       date: new Date().toISOString().split('T')[0],
       from: '',
       to: '',
+      has_enroute: 'No',
+      enroute: '',
       start_km: '',
       end_km: '',
       remark: '',
@@ -160,6 +187,8 @@ export const Trips: React.FC<TripsProps> = ({
       date: t.date,
       from: t.from,
       to: t.to,
+      has_enroute: t.enroute && t.enroute.trim() ? 'Yes' : 'No',
+      enroute: t.enroute || '',
       start_km: t.start_km.toString(),
       end_km: t.end_km !== null && t.end_km !== undefined ? t.end_km.toString() : '',
       remark: t.remark,
@@ -199,6 +228,8 @@ export const Trips: React.FC<TripsProps> = ({
 
     try {
       setIsSubmitting(true);
+      const enrouteValue = formData.has_enroute === 'Yes' && formData.enroute.trim() ? formData.enroute.trim() : '';
+
       if (editingTrip) {
         // When updating, if vehicle was in transit (DISPATCHED) and end_km is logged by driver,
         // update gate_status to PENDING_ENTRY awaiting security gate check.
@@ -214,6 +245,7 @@ export const Trips: React.FC<TripsProps> = ({
           date: formData.date,
           from: formData.from,
           to: formData.to,
+          enroute: enrouteValue,
           start_km: s,
           end_km: eVal,
           remark: formData.remark,
@@ -229,6 +261,7 @@ export const Trips: React.FC<TripsProps> = ({
           date: formData.date,
           from: formData.from,
           to: formData.to,
+          enroute: enrouteValue,
           start_km: s,
           end_km: eVal,
           remark: formData.remark,
@@ -261,7 +294,7 @@ export const Trips: React.FC<TripsProps> = ({
   };
 
   // Security Gate In Confirmation
-  const handleConfirmGateIn = async (data: { gate_in_by: string; gate_in_time: string; end_km: number }) => {
+  const handleConfirmGateIn = async (data: { gate_in_by: string; gate_in_time: string; end_km: number; enroute?: string }) => {
     if (!gateInTrip) return;
     const currentTimestamp = data.gate_in_time || new Date().toISOString();
     const startKm = gateInTrip.start_km;
@@ -274,6 +307,7 @@ export const Trips: React.FC<TripsProps> = ({
       distance,
       gate_in_time: currentTimestamp,
       gate_in_by: data.gate_in_by,
+      ...(data.enroute !== undefined ? { enroute: data.enroute } : {}),
     });
     setGateInTrip(null);
   };
@@ -508,7 +542,19 @@ export const Trips: React.FC<TripsProps> = ({
                     </td>
                     <td className="py-3 px-4">
                       <div className="font-medium text-slate-800">
-                        {trip.from} <span className="text-blue-500">→</span> {trip.to}
+                        {trip.enroute ? (
+                          <span>
+                            {trip.from || 'Origin'}{' '}
+                            <span className="text-blue-500 font-bold">→</span>{' '}
+                            <span className="text-blue-700 font-semibold">(via {trip.enroute})</span>{' '}
+                            <span className="text-blue-500 font-bold">→</span>{' '}
+                            {trip.to || 'Destination'}
+                          </span>
+                        ) : (
+                          <span>
+                            {trip.from || '—'} <span className="text-blue-500">→</span> {trip.to || '—'}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="py-3 px-4 font-mono text-slate-600">
@@ -630,7 +676,7 @@ export const Trips: React.FC<TripsProps> = ({
           <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[92vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-shrink-0">
               <h3 className="text-base font-bold text-slate-900">
-                {editingTrip ? 'Edit Trip Record' : 'Log New Fleet Trip'}
+                {editingTrip ? 'Close / Edit Trip Record' : 'Log New Fleet Trip'}
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -711,7 +757,7 @@ export const Trips: React.FC<TripsProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">Start KM *</label>
                   <input
@@ -735,6 +781,54 @@ export const Trips: React.FC<TripsProps> = ({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-medium"
                   />
                 </div>
+              </div>
+
+              {/* Conditional Enroute Stops Question & Input */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="font-semibold text-slate-800 text-xs">
+                    Did this trip have any enroute stops?
+                  </label>
+                  <div className="inline-flex rounded-lg p-0.5 bg-slate-200 font-semibold text-xs flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, has_enroute: 'No', enroute: '' })}
+                      className={`px-3 py-1 rounded-md transition-all ${
+                        formData.has_enroute === 'No'
+                          ? 'bg-white text-slate-900 shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      No
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, has_enroute: 'Yes' })}
+                      className={`px-3 py-1 rounded-md transition-all ${
+                        formData.has_enroute === 'Yes'
+                          ? 'bg-blue-600 text-white shadow-2xs font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Yes
+                    </button>
+                  </div>
+                </div>
+
+                {formData.has_enroute === 'Yes' && (
+                  <div className="pt-2 border-t border-slate-200 animate-in fade-in duration-150">
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Enroute / Via Location(s)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Poonamallee, Guindy"
+                      value={formData.enroute}
+                      onChange={e => setFormData({ ...formData, enroute: e.target.value })}
+                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 shadow-2xs font-medium"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Calculated Distance display */}

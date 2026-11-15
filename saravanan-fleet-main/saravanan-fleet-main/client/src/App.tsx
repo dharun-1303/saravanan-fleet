@@ -57,7 +57,9 @@ export const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
   const [isQuickTripOpen, setIsQuickTripOpen] = useState(false);
-  const [qrTripVehicleId, setQrTripVehicleId] = useState<string | null>(null);
+  const [preselectedTripVehicleId, setPreselectedTripVehicleId] = useState<string | null>(null);
+  const [preselectedFuelVehicleId, setPreselectedFuelVehicleId] = useState<string | null>(null);
+  const [preselectedMaintVehicleId, setPreselectedMaintVehicleId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -377,11 +379,13 @@ export const App: React.FC = () => {
     if (action === 'view') {
       setVehicleFromTab('vehicles');
       setSelectedVehicleId(vehicleId);
+      window.history.pushState({ tab: 'vehicles', vehicleId }, '', `#vehicles/${vehicleId}`);
     } else {
       // Open trips tab with vehicle pre-selected for quick trip entry
-      setQrTripVehicleId(vehicleId);
+      setPreselectedTripVehicleId(vehicleId);
       setSelectedVehicleId(null);
       setCurrentTab('trips');
+      window.history.pushState({ tab: 'trips', vehicleId: null }, '', '#trips');
     }
   };
 
@@ -451,14 +455,23 @@ export const App: React.FC = () => {
                   setSelectedVehicleId(null);
                   setCurrentTab('vehicles');
                 }}
-                onAddTripForVehicle={_vId => {
+                onAddTripForVehicle={vId => {
+                  setSelectedVehicleId(null);
+                  setPreselectedTripVehicleId(vId);
                   setCurrentTab('trips');
+                  window.history.pushState({ tab: 'trips', vehicleId: null }, '', '#trips');
                 }}
-                onAddFuelForVehicle={_vId => {
+                onAddFuelForVehicle={vId => {
+                  setSelectedVehicleId(null);
+                  setPreselectedFuelVehicleId(vId);
                   setCurrentTab('fuel');
+                  window.history.pushState({ tab: 'fuel', vehicleId: null }, '', '#fuel');
                 }}
-                onAddMaintForVehicle={_vId => {
+                onAddMaintForVehicle={vId => {
+                  setSelectedVehicleId(null);
+                  setPreselectedMaintVehicleId(vId);
                   setCurrentTab('maintenance');
+                  window.history.pushState({ tab: 'maintenance', vehicleId: null }, '', '#maintenance');
                 }}
               />
             ) : currentTab === 'dashboard' ? (
@@ -487,8 +500,8 @@ export const App: React.FC = () => {
                 onUpdateTrip={handleUpdateTrip}
                 onDeleteTrip={handleDeleteTrip}
                 onExportCSV={() => handleExportCSV('trips')}
-                preselectedVehicleId={qrTripVehicleId}
-                onPreselectedConsumed={() => setQrTripVehicleId(null)}
+                preselectedVehicleId={preselectedTripVehicleId}
+                onPreselectedConsumed={() => setPreselectedTripVehicleId(null)}
               />
             ) : currentTab === 'fuel' ? (
               <FuelPage
@@ -498,6 +511,8 @@ export const App: React.FC = () => {
                 onUpdateFuel={handleUpdateFuel}
                 onDeleteFuel={handleDeleteFuel}
                 onExportCSV={() => handleExportCSV('fuel')}
+                preselectedVehicleId={preselectedFuelVehicleId}
+                onPreselectedConsumed={() => setPreselectedFuelVehicleId(null)}
               />
             ) : currentTab === 'maintenance' ? (
               <MaintenancePage
@@ -507,6 +522,8 @@ export const App: React.FC = () => {
                 onUpdateMaintenance={handleUpdateMaintenance}
                 onDeleteMaintenance={handleDeleteMaintenance}
                 onExportCSV={() => handleExportCSV('maintenance')}
+                preselectedVehicleId={preselectedMaintVehicleId}
+                onPreselectedConsumed={() => setPreselectedMaintVehicleId(null)}
               />
             ) : currentTab === 'documents' ? (
               <DocumentsPage

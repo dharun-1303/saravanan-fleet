@@ -101,6 +101,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
         date,
         from,
         to,
+        enroute,
         start_km,
         end_km,
         remark,
@@ -130,6 +131,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
         date,
         from: from || '',
         to: to || '',
+        enroute: enroute ? String(enroute).trim() : undefined,
         start_km: numStart,
         end_km: numEnd,
         remark: remark || '',
@@ -439,6 +441,9 @@ export function createFleetRouter(dataStore: DataStore): Router {
       endDate,
     };
 
+    const resolvedVehicle = vehicleId ? dataStore.getVehicleById(vehicleId) : undefined;
+    const effectiveVehicleId = resolvedVehicle ? resolvedVehicle.vehicle_id : vehicleId;
+
     const analytics = AnalyticsEngine.calculateAnalytics({
       vehicles: dataStore.getVehicles(),
       trips: dataStore.getTrips(),
@@ -446,7 +451,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
       maintenance: dataStore.getMaintenanceRecords(),
       expenses: dataStore.getExpenseRecords(),
       filter,
-      targetVehicleId: vehicleId,
+      targetVehicleId: effectiveVehicleId,
     });
 
     res.json(analytics);
@@ -470,6 +475,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
         'Date',
         'From',
         'To',
+        'Enroute',
         'Start KM',
         'End KM',
         'Distance (KM)',
@@ -490,6 +496,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
         t.date,
         `"${(t.from || '').replace(/"/g, '""')}"`,
         `"${(t.to || '').replace(/"/g, '""')}"`,
+        `"${(t.enroute || '').replace(/"/g, '""')}"`,
         t.start_km,
         t.end_km ?? '',
         t.distance,
