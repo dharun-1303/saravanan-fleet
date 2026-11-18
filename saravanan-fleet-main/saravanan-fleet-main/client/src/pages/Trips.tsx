@@ -103,31 +103,107 @@ export const Trips: React.FC<TripsProps> = ({
     [vehicles]
   );
 
-  // Dynamic status counts for filter tabs
+  // Driver/Role-accessible trips calculation
+  const roleTrips = useMemo(() => {
+    if (userRole !== 'driver') {
+      return trips;
+    }
+
+    const rawDriverName = (
+      currentUser?.driverName ||
+      (currentUser?.name && !currentUser.name.includes('(QR Scan)') && !currentUser.name.toLowerCase().includes('fleet driver') ? currentUser.name : '') ||
+      ''
+    ).trim().toLowerCase();
+
+    const isGenericOrQRSession = Boolean(
+      currentUser?.canBypassQR ||
+      !rawDriverName ||
+      currentUser?.name.includes('QR Scan') ||
+      currentUser?.name.toLowerCase().includes('fleet driver')
+    );
+
+    return trips.filter(t => {
+      // 1. All active/open trips (PENDING_EXIT, IN_TRANSIT, DISPATCHED, or missing end_km)
+      const hasNoEndKm =
+        t.end_km === null ||
+        t.end_km === undefined ||
+        String(t.end_km).trim() === '' ||
+        isNaN(Number(t.end_km));
+      const isOpenGate =
+        t.gate_status === 'PENDING_EXIT' ||
+        t.gate_status === 'DISPATCHED' ||
+        t.gate_status === 'PENDING_ENTRY';
+      const isOpenStatus =
+        t.status === 'IN_TRANSIT' ||
+        t.status === 'UNFINISHED' ||
+        (t.trip_status as string) === 'IN_TRANSIT' ||
+        (t.trip_status as string) === 'PENDING_EXIT';
+      const isNotCompleted =
+        t.status !== 'COMPLETED' &&
+        t.gate_status !== 'COMPLETED' &&
+        t.trip_status !== 'COMPLETED';
+
+      const isActiveOpen = (hasNoEndKm || isOpenGate || isOpenStatus) && isNotCompleted;
+      if (isActiveOpen) return true;
+
+      // 2. Do not hide trips if trip.driver is empty, '-', or '—'
+      const cleanDriver = (t.driver || '').trim().toLowerCase();
+      if (!cleanDriver || cleanDriver === '-' || cleanDriver === '—' || cleanDriver === 'unassigned') {
+        return true;
+      }
+
+      // 3. Do not hide trips if generic or QR scan session (display recent trips)
+      if (isGenericOrQRSession) {
+        return true;
+      }
+
+      // 4. Trips matching the logged-in driver's name (case-insensitive trim match)
+      if (rawDriverName && (cleanDriver === rawDriverName || cleanDriver.includes(rawDriverName) || rawDriverName.includes(cleanDriver))) {
+        return true;
+      }
+
+      // 5. Scanned vehicle trips
+      if (preselectedVehicleId && t.vehicle_id === preselectedVehicleId) {
+        return true;
+      }
+
+      return false;
+    });
+  }, [trips, userRole, currentUser, preselectedVehicleId]);
+
+  // Base trips scoped by role and selected vehicle dropdown
+  const baseTrips = useMemo(() => {
+    if (selectedVehicle === 'all') return roleTrips;
+    return roleTrips.filter(t => t.vehicle_id === selectedVehicle);
+  }, [roleTrips, selectedVehicle]);
+
+  const allTripsCount = baseTrips.length;
+
   const pendingGateCount = useMemo(
     () =>
-      trips.filter(
+      baseTrips.filter(
         t =>
           t.gate_status === 'PENDING_EXIT' ||
           t.gate_status === 'PENDING_ENTRY' ||
-          (!t.gate_status && t.status === 'UNFINISHED')
+          (!t.gate_status && t.status !== 'COMPLETED')
       ).length,
-    [trips]
+    [baseTrips]
   );
 
   const inTransitCount = useMemo(
     () =>
-      trips.filter(
+      baseTrips.filter(
         t =>
           t.gate_status === 'DISPATCHED' ||
+          t.status === 'IN_TRANSIT' ||
           (t.status === 'UNFINISHED' && t.gate_status !== 'PENDING_EXIT' && t.gate_status !== 'PENDING_ENTRY')
       ).length,
-    [trips]
+    [baseTrips]
   );
 
   const completedCount = useMemo(
-    () => trips.filter(t => t.status === 'COMPLETED' || t.gate_status === 'COMPLETED').length,
-    [trips]
+    () => baseTrips.filter(t => t.status === 'COMPLETED' || t.gate_status === 'COMPLETED').length,
+    [baseTrips]
   );
 
   // Auto-focus End KM when Close Active Trip opens, or Start KM when Log New Trip opens
@@ -319,23 +395,65 @@ export const Trips: React.FC<TripsProps> = ({
       return true;
     }
     if (userRole === 'driver') {
-      const driverName = (
+      const rawDriverName = (
         currentUser?.driverName ||
-        (currentUser?.name && !currentUser.name.includes('(QR Scan)') ? currentUser.name : '') ||
+        (currentUser?.name && !currentUser.name.includes('(QR Scan)') && !currentUser.name.toLowerCase().includes('fleet driver') ? currentUser.name : '') ||
         ''
       ).trim().toLowerCase();
-      const isOwner = Boolean(
-        driverName &&
-        t.driver &&
-        (t.driver.toLowerCase().includes(driverName) || driverName.includes(t.driver.toLowerCase()))
-      );
-      const isScannedVehicle = Boolean(
-        (preselectedVehicleId && t.vehicle_id === preselectedVehicleId) ||
-        (selectedVehicle !== 'all' && t.vehicle_id === selectedVehicle)
-      );
-      const isActiveTrip = t.status !== 'COMPLETED' && t.gate_status !== 'COMPLETED';
 
-      return isOwner || (isScannedVehicle && isActiveTrip) || (Boolean(currentUser?.canBypassQR) && isScannedVehicle);
+      const isGenericOrQRSession = Boolean(
+        currentUser?.canBypassQR ||
+        !rawDriverName ||
+        currentUser?.name.includes('QR Scan') ||
+        currentUser?.name.toLowerCase().includes('fleet driver')
+      );
+
+      // In QR or generic driver session, driver can edit/delete visible trips
+      if (isGenericOrQRSession) {
+        return true;
+      }
+
+      // Empty or unassigned driver name can be edited/claimed/deleted
+      const cleanDriver = (t.driver || '').trim().toLowerCase();
+      if (!cleanDriver || cleanDriver === '-' || cleanDriver === '—' || cleanDriver === 'unassigned') {
+        return true;
+      }
+
+      // Active / open trips can always be edited or closed by any driver
+      const hasNoEndKm =
+        t.end_km === null ||
+        t.end_km === undefined ||
+        String(t.end_km).trim() === '' ||
+        isNaN(Number(t.end_km));
+      const isOpenGate =
+        t.gate_status === 'PENDING_EXIT' ||
+        t.gate_status === 'DISPATCHED' ||
+        t.gate_status === 'PENDING_ENTRY';
+      const isOpenStatus =
+        t.status === 'IN_TRANSIT' ||
+        t.status === 'UNFINISHED' ||
+        (t.trip_status as string) === 'IN_TRANSIT' ||
+        (t.trip_status as string) === 'PENDING_EXIT';
+      const isNotCompleted =
+        t.status !== 'COMPLETED' &&
+        t.gate_status !== 'COMPLETED' &&
+        t.trip_status !== 'COMPLETED';
+
+      if ((hasNoEndKm || isOpenGate || isOpenStatus) && isNotCompleted) {
+        return true;
+      }
+
+      // Trip owned by this driver
+      if (rawDriverName && (cleanDriver === rawDriverName || cleanDriver.includes(rawDriverName) || rawDriverName.includes(cleanDriver))) {
+        return true;
+      }
+
+      // Scanned vehicle trip
+      if (preselectedVehicleId && t.vehicle_id === preselectedVehicleId) {
+        return true;
+      }
+
+      return false;
     }
     return false;
   };
@@ -484,16 +602,15 @@ export const Trips: React.FC<TripsProps> = ({
     setGateInTrip(null);
   };
 
-  const filteredTrips = trips.filter(t => {
+  const filteredTrips = baseTrips.filter(t => {
     const matchesSearch =
+      !searchTerm ||
       t.from.toLowerCase().includes(searchTerm.toLowerCase()) ||
       t.to.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.driver && t.driver.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (t.remark && t.remark.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (t.gate_out_by && t.gate_out_by.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (t.gate_in_by && t.gate_in_by.toLowerCase().includes(searchTerm.toLowerCase()));
-
-    const matchesVehicle = selectedVehicle === 'all' || t.vehicle_id === selectedVehicle;
 
     // Filter by Active Tab
     let matchesTab = true;
@@ -530,30 +647,7 @@ export const Trips: React.FC<TripsProps> = ({
       matchesStatus = t.status === 'UNFINISHED' || t.status === 'IN_TRANSIT';
     }
 
-    // Driver privacy filter: Drivers must not view other drivers' private logs
-    if (userRole === 'driver') {
-      const driverName = (
-        currentUser?.driverName ||
-        (currentUser?.name && !currentUser.name.includes('(QR Scan)') ? currentUser.name : '') ||
-        ''
-      ).trim().toLowerCase();
-      const isOwner = Boolean(
-        driverName &&
-        t.driver &&
-        (t.driver.toLowerCase().includes(driverName) || driverName.includes(t.driver.toLowerCase()))
-      );
-      const isScannedVehicle = Boolean(
-        (preselectedVehicleId && t.vehicle_id === preselectedVehicleId) ||
-        (selectedVehicle !== 'all' && t.vehicle_id === selectedVehicle)
-      );
-      const isActiveTrip = t.status !== 'COMPLETED' && t.gate_status !== 'COMPLETED';
-
-      if (!isOwner && !(isScannedVehicle && isActiveTrip) && !(currentUser?.canBypassQR && isScannedVehicle)) {
-        return false;
-      }
-    }
-
-    return matchesSearch && matchesVehicle && matchesTab && matchesStatus;
+    return matchesSearch && matchesTab && matchesStatus;
   });
 
   return (
@@ -653,7 +747,7 @@ export const Trips: React.FC<TripsProps> = ({
               activeTab === 'all' ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-600'
             }`}
           >
-            {trips.length}
+            {allTripsCount}
           </span>
         </button>
 

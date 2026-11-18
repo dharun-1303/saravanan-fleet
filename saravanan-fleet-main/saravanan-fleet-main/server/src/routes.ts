@@ -191,16 +191,17 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
       // If requested by a driver, verify it belongs to that driver or is an active trip / QR scan trip
       if (userRole === 'driver') {
+        const cleanDriver = (existingTrip.driver || '').trim().toLowerCase();
+        const isDriverEmpty = !cleanDriver || cleanDriver === '-' || cleanDriver === '—' || cleanDriver === 'unassigned';
         const isOwner = Boolean(
           driverName &&
-          existingTrip.driver &&
-          (existingTrip.driver.toLowerCase().includes(driverName.toLowerCase()) ||
-           driverName.toLowerCase().includes(existingTrip.driver.toLowerCase()))
+          cleanDriver &&
+          (cleanDriver.includes(driverName.toLowerCase()) || driverName.toLowerCase().includes(cleanDriver))
         );
         const isActive = existingTrip.status !== 'COMPLETED' && existingTrip.gate_status !== 'COMPLETED';
-        const isQRBypass = driverName.includes('QR Scan') || driverName.toLowerCase().includes('driver');
+        const isQRBypass = !driverName || driverName.includes('QR Scan') || driverName.toLowerCase().includes('fleet driver') || driverName.toLowerCase().includes('driver');
 
-        if (!isOwner && !isActive && !isQRBypass) {
+        if (!isDriverEmpty && !isOwner && !isActive && !isQRBypass) {
           res.status(403).json({ error: 'Drivers can only update their own or active trips' });
           return;
         }
@@ -231,16 +232,17 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
       // If requested by a driver, verify it belongs to that driver or is an active trip / QR scan trip
       if (userRole === 'driver') {
+        const cleanDriver = (existingTrip.driver || '').trim().toLowerCase();
+        const isDriverEmpty = !cleanDriver || cleanDriver === '-' || cleanDriver === '—' || cleanDriver === 'unassigned';
         const isOwner = Boolean(
           driverName &&
-          existingTrip.driver &&
-          (existingTrip.driver.toLowerCase().includes(driverName.toLowerCase()) ||
-           driverName.toLowerCase().includes(existingTrip.driver.toLowerCase()))
+          cleanDriver &&
+          (cleanDriver.includes(driverName.toLowerCase()) || driverName.toLowerCase().includes(cleanDriver))
         );
         const isActive = existingTrip.status !== 'COMPLETED' && existingTrip.gate_status !== 'COMPLETED';
-        const isQRBypass = driverName.includes('QR Scan') || driverName.toLowerCase().includes('driver');
+        const isQRBypass = !driverName || driverName.includes('QR Scan') || driverName.toLowerCase().includes('fleet driver') || driverName.toLowerCase().includes('driver');
 
-        if (!isOwner && !isActive && !isQRBypass) {
+        if (!isDriverEmpty && !isOwner && !isActive && !isQRBypass) {
           res.status(403).json({ error: 'Drivers can only delete their own or active trips' });
           return;
         }
