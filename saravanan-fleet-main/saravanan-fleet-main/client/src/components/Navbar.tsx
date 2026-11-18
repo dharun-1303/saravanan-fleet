@@ -1,6 +1,6 @@
 import React from 'react';
-import { RefreshCw, QrCode, PlusCircle, CheckCircle2, AlertCircle, Database, Menu } from 'lucide-react';
-import { SyncStatus } from '../types';
+import { RefreshCw, QrCode, PlusCircle, CheckCircle2, AlertCircle, Database, Menu, Shield } from 'lucide-react';
+import { SyncStatus, AuthUser, ROLE_CONFIGS, ROLE_PERMISSIONS } from '../types';
 
 interface NavbarProps {
   syncStatus: SyncStatus;
@@ -10,6 +10,9 @@ interface NavbarProps {
   onQuickAddTrip: () => void;
   title: string;
   onOpenMobileMenu?: () => void;
+  currentUser?: AuthUser | null;
+  onSwitchRole?: () => void;
+  onOpenRoleSwitcher?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -20,12 +23,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   onQuickAddTrip,
   title,
   onOpenMobileMenu,
+  currentUser,
+  onSwitchRole,
+  onOpenRoleSwitcher,
 }) => {
   const formatSyncTime = (isoString: string | null) => {
     if (!isoString) return 'Never';
     const date = new Date(isoString);
     return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
+
+  const roleConfig = currentUser?.role ? ROLE_CONFIGS[currentUser.role] : null;
+  const canAddTrip = currentUser ? ROLE_PERMISSIONS[currentUser.role]?.canAddTrip : true;
 
   return (
     <header className="h-16 bg-white border-b border-slate-200/80 px-4 md:px-6 flex items-center justify-between sticky top-0 z-20 shadow-xs gap-2">
@@ -38,13 +47,30 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <Menu className="w-5 h-5" />
         </button>
-        <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight truncate">{title}</h2>
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight truncate">{title}</h2>
+        </div>
       </div>
 
-      {/* Actions & Sync Status */}
+      {/* Actions & Sync Status & Role Badge */}
       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        {/* Active Role Indicator Pill */}
+        {currentUser && (
+          <button
+            type="button"
+            onClick={onSwitchRole || onOpenRoleSwitcher}
+            className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border transition-all active:scale-95 shadow-2xs ${
+              roleConfig?.badgeBg || 'bg-slate-100 border-slate-300'
+            } ${roleConfig?.badgeText || 'text-slate-800'}`}
+            title={`Active Role: ${roleConfig?.badgeLabel || currentUser.role}. Click to switch role (requires authentication).`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            <span>{roleConfig?.badgeLabel || currentUser.role}</span>
+          </button>
+        )}
+
         {/* Sync Status Badge */}
-        <div className="hidden lg:flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
+        <div className="hidden xl:flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-xs">
           <Database className="w-3.5 h-3.5 text-slate-500" />
           <span className="text-slate-600 font-medium">
             {syncStatus.source === 'google_sheets' ? 'Google Sheets' : 'Local Data'}
@@ -90,15 +116,17 @@ export const Navbar: React.FC<NavbarProps> = ({
           <span className="hidden xs:inline">Scan QR</span>
         </button>
 
-        {/* Quick Add Trip Button */}
-        <button
-          onClick={onQuickAddTrip}
-          className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition-all active:scale-95"
-        >
-          <PlusCircle className="w-4 h-4" />
-          <span className="hidden xs:inline">New Trip</span>
-          <span className="xs:hidden">Trip</span>
-        </button>
+        {/* Quick Add Trip Button (Only if role has canAddTrip) */}
+        {canAddTrip && (
+          <button
+            onClick={onQuickAddTrip}
+            className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm shadow-blue-500/20 transition-all active:scale-95"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span className="hidden xs:inline">New Trip</span>
+            <span className="xs:hidden">Trip</span>
+          </button>
+        )}
       </div>
     </header>
   );

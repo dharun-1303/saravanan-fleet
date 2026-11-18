@@ -91,7 +91,34 @@ export function createFleetRouter(dataStore: DataStore): Router {
   // --- TRIPS ---
   router.get('/trips', (req: Request, res: Response) => {
     const vehicleId = req.query.vehicleId as string | undefined;
-    res.json(dataStore.getTrips(vehicleId));
+    const activeOnly = req.query.active === 'true' || req.query.active === '1';
+    let trips = dataStore.getTrips(vehicleId);
+    if (activeOnly) {
+      trips = trips.filter(t => {
+        const hasNoEndKm =
+          t.end_km === null ||
+          t.end_km === undefined ||
+          String(t.end_km).trim() === '' ||
+          isNaN(Number(t.end_km));
+        const isTripStatusActive =
+          t.trip_status === 'IN_TRANSIT' ||
+          (t.trip_status as string) === 'PENDING_EXIT' ||
+          t.gate_status === 'PENDING_EXIT' ||
+          t.status === 'IN_TRANSIT' ||
+          t.status === 'UNFINISHED';
+        const isNotCompleted =
+          t.trip_status !== 'COMPLETED' &&
+          t.status !== 'COMPLETED' &&
+          t.gate_status !== 'COMPLETED';
+        return (hasNoEndKm || isTripStatusActive) && isNotCompleted;
+      });
+    }
+    res.json(trips);
+  });
+
+  router.get('/trips/active/:vehicleId', (req: Request, res: Response) => {
+    const activeTrip = dataStore.getActiveTripForVehicle(String(req.params.vehicleId));
+    res.json(activeTrip || null);
   });
 
   router.post('/trips', async (req: Request, res: Response) => {

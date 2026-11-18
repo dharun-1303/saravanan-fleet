@@ -75,6 +75,12 @@ export const api = {
     return res.json();
   },
 
+  async getActiveTrip(vehicleId: string): Promise<Trip | null> {
+    const res = await fetch(`${API_BASE}/trips/active/${encodeURIComponent(vehicleId)}`);
+    if (!res.ok) return null;
+    return res.json();
+  },
+
   async createTrip(data: Partial<Trip>): Promise<Trip> {
     const res = await fetch(`${API_BASE}/trips`, {
       method: 'POST',

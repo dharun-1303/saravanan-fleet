@@ -176,3 +176,5 @@ export interface AnalyticsSummary {
   highMaintenanceVehicles?: { vehicle_id: string; vehicle_name: string; registration_number: string; maintenanceCost: number }[];
   mostUsedVehicles?: { vehicle_id: string; vehicle_name: string; registration_number: string; distance: number }[];
 }
+
+export * from './auth';

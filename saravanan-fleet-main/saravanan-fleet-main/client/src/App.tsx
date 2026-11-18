@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { QRScannerModal } from './components/QRScannerModal';
+import { LoginPage } from './pages/Login';
 import { useAlertNotifications } from './hooks/useAlertNotifications';
 
 import { Dashboard } from './pages/Dashboard';
@@ -28,11 +29,68 @@ import {
   AlertItem,
   SyncStatus,
   AnalyticsSummary,
+  AuthUser,
+  UserRole,
+  ROLE_CONFIGS,
+  ROLE_PERMISSIONS,
+  DEFAULT_USERS,
+  DEFAULT_SECURITY_GATE_PIN,
+  DEFAULT_DRIVER_PIN,
 } from './types';
 import { api, API_BASE } from './api/client';
 
 export const App: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
+  // Active RBAC User Session (with QR Bypass detection)
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    // 1. Check if vehicle QR parameter exists in URL on initial load -> automatic Driver QR bypass
+    const searchParams = new URLSearchParams(window.location.search);
+    const hasSearchQr =
+      searchParams.get('vehicle_id') ||
+      searchParams.get('vehicle') ||
+      searchParams.get('reg') ||
+      searchParams.get('id') ||
+      searchParams.get('qr');
+
+    const rawHash = window.location.hash.replace(/^#/, '');
+    const [hPath, hQuery] = rawHash.split('?');
+    const hParams = new URLSearchParams(hQuery || '');
+    const hasHashQr =
+      hParams.get('vehicle_id') ||
+      hParams.get('vehicle') ||
+      hParams.get('reg') ||
+      hParams.get('id') ||
+      hParams.get('qr') ||
+      ((hPath.startsWith('trips/') || hPath.startsWith('qr/') || hPath.startsWith('scan/')) && hPath.split('/')[1]);
+
+    if (hasSearchQr || hasHashQr) {
+      const qrDriverUser: AuthUser = {
+        id: 'driver-qr-bypass',
+        name: 'Fleet Driver (QR Scan)',
+        role: 'driver',
+        canBypassQR: true,
+      };
+      localStorage.setItem('saravanan_fleet_auth', JSON.stringify(qrDriverUser));
+      return qrDriverUser;
+    }
+
+    // 2. Otherwise restore saved session from localStorage
+    try {
+      const saved = localStorage.getItem('saravanan_fleet_auth');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return null;
+  });
+
+  const [currentTab, setCurrentTab] = useState<NavTab>(() => {
+    if (currentUser?.role === 'security_gate' || currentUser?.role === 'driver') {
+      return 'trips';
+    }
+    if (currentUser?.role === 'accounts_auditor') {
+      return 'trips';
+    }
+    return 'dashboard';
+  });
+
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [vehicleFromTab, setVehicleFromTab] = useState<NavTab>('vehicles'); // track which tab opened the vehicle
 
@@ -56,7 +114,6 @@ export const App: React.FC = () => {
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
-  const [isQuickTripOpen, setIsQuickTripOpen] = useState(false);
   const [preselectedTripVehicleId, setPreselectedTripVehicleId] = useState<string | null>(null);
   const [preselectedFuelVehicleId, setPreselectedFuelVehicleId] = useState<string | null>(null);
   const [preselectedMaintVehicleId, setPreselectedMaintVehicleId] = useState<string | null>(null);
@@ -78,21 +135,101 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Mobile Back Button & History Synchronization
+  // Mobile Back Button & History Synchronization & QR URL landing
   useEffect(() => {
-    const validTabs: NavTab[] = ['dashboard', 'vehicles', 'trips', 'fuel', 'maintenance', 'documents', 'expenses', 'alerts', 'analytics', 'reports', 'settings'];
-    const hash = window.location.hash.replace(/^#/, '');
-    if (hash) {
-      const parts = hash.split('/');
-      const tabCandidate = parts[0] as NavTab;
-      if (validTabs.includes(tabCandidate)) {
-        setCurrentTab(tabCandidate);
-        if (parts[1]) {
-          setSelectedVehicleId(parts[1]);
+    const validTabs: NavTab[] = [
+      'dashboard',
+      'vehicles',
+      'trips',
+      'fuel',
+      'maintenance',
+      'documents',
+      'expenses',
+      'alerts',
+      'analytics',
+      'reports',
+      'settings',
+    ];
+
+    const getVehicleParamFromUrl = (): { vehicleId: string | null; tab: NavTab | null } => {
+      // 1. Search params from window.location.search
+      const searchParams = new URLSearchParams(window.location.search);
+      const searchVehicle =
+        searchParams.get('vehicle_id') ||
+        searchParams.get('vehicle') ||
+        searchParams.get('reg') ||
+        searchParams.get('id') ||
+        searchParams.get('qr');
+      if (searchVehicle) {
+        return { vehicleId: searchVehicle, tab: 'trips' };
+      }
+
+      // 2. Hash and hash query params
+      const rawHash = window.location.hash.replace(/^#/, '');
+      const [hashPath, hashQuery] = rawHash.split('?');
+      if (hashQuery) {
+        const hashParams = new URLSearchParams(hashQuery);
+        const hashVehicle =
+          hashParams.get('vehicle_id') ||
+          hashParams.get('vehicle') ||
+          hashParams.get('reg') ||
+          hashParams.get('id') ||
+          hashParams.get('qr');
+        if (hashVehicle) {
+          return { vehicleId: hashVehicle, tab: 'trips' };
         }
       }
+
+      if (hashPath) {
+        const parts = hashPath.split('/');
+        if (parts[0] === 'trips' && parts[1]) {
+          return { vehicleId: parts[1], tab: 'trips' };
+        }
+        if ((parts[0] === 'qr' || parts[0] === 'scan') && parts[1]) {
+          return { vehicleId: parts[1], tab: 'trips' };
+        }
+      }
+
+      return { vehicleId: null, tab: null };
+    };
+
+    const initialUrlInfo = getVehicleParamFromUrl();
+    if (initialUrlInfo.vehicleId) {
+      // Ensure authenticated as driver if no session
+      if (!currentUser) {
+        const qrDriverUser: AuthUser = {
+          id: 'driver-qr-bypass',
+          name: 'Fleet Driver (QR Scan)',
+          role: 'driver',
+          canBypassQR: true,
+        };
+        setCurrentUser(qrDriverUser);
+        localStorage.setItem('saravanan_fleet_auth', JSON.stringify(qrDriverUser));
+      }
+      setCurrentTab('trips');
+      setPreselectedTripVehicleId(initialUrlInfo.vehicleId);
+      setSelectedVehicleId(null);
     } else {
-      window.history.replaceState({ tab: 'dashboard', vehicleId: null }, '', '#dashboard');
+      const rawHash = window.location.hash.replace(/^#/, '');
+      const [hashPath] = rawHash.split('?');
+      if (hashPath) {
+        const parts = hashPath.split('/');
+        const tabCandidate = parts[0] as NavTab;
+        if (validTabs.includes(tabCandidate)) {
+          // Verify tab permission for current role
+          if (currentUser) {
+            const allowed = ROLE_PERMISSIONS[currentUser.role]?.allowedTabs || [];
+            if (allowed.includes(tabCandidate)) {
+              setCurrentTab(tabCandidate);
+            }
+          } else {
+            setCurrentTab(tabCandidate);
+          }
+          if (parts[1]) {
+            setSelectedVehicleId(parts[1]);
+          }
+        }
+      }
     }
 
     const handlePopState = (event: PopStateEvent) => {
@@ -100,7 +237,16 @@ export const App: React.FC = () => {
       setIsMobileMenuOpen(false);
       setIsQRScannerOpen(false);
 
-      // 2. Restore tab and vehicle from history state or URL hash
+      // 2. Check for vehicle parameter in URL
+      const urlInfo = getVehicleParamFromUrl();
+      if (urlInfo.vehicleId) {
+        setCurrentTab('trips');
+        setPreselectedTripVehicleId(urlInfo.vehicleId);
+        setSelectedVehicleId(null);
+        return;
+      }
+
+      // 3. Restore tab and vehicle from history state or URL hash
       const state = event.state;
       if (state) {
         setSelectedVehicleId(state.vehicleId || null);
@@ -109,7 +255,8 @@ export const App: React.FC = () => {
         }
       } else {
         const currentHash = window.location.hash.replace(/^#/, '');
-        const parts = currentHash.split('/');
+        const [hashPath] = currentHash.split('?');
+        const parts = hashPath.split('/');
         const tabCandidate = parts[0] as NavTab;
         if (tabCandidate && validTabs.includes(tabCandidate)) {
           setCurrentTab(tabCandidate);
@@ -172,11 +319,45 @@ export const App: React.FC = () => {
       setIsSyncing(true);
       await api.refreshSync();
       await fetchAllData();
+      showNotification('Google Sheets two-way sync completed.', 'success');
     } catch (err) {
       console.error('Manual sync failed:', err);
+      showNotification('Sync failed. Please check network/credentials.', 'error');
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  // Authentication Handlers
+  const handleLogin = (user: AuthUser) => {
+    setCurrentUser(user);
+    localStorage.setItem('saravanan_fleet_auth', JSON.stringify(user));
+
+    const allowed = ROLE_PERMISSIONS[user.role]?.allowedTabs || ['trips'];
+    if (!allowed.includes(currentTab)) {
+      const target = allowed[0] as NavTab;
+      setCurrentTab(target);
+      window.history.replaceState({ tab: target, vehicleId: null }, '', `#${target}`);
+    }
+    showNotification(`Signed in as ${user.name} (${ROLE_CONFIGS[user.role].badgeLabel}).`, 'success');
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('saravanan_fleet_auth');
+    setCurrentUser(null);
+    setSelectedVehicleId(null);
+    setCurrentTab('dashboard');
+    window.history.replaceState(null, '', '#');
+    showNotification('Logged out successfully.', 'success');
+  };
+
+  const handleSwitchRole = () => {
+    localStorage.removeItem('saravanan_fleet_auth');
+    setCurrentUser(null);
+    setSelectedVehicleId(null);
+    setCurrentTab('dashboard');
+    window.history.replaceState(null, '', '#');
+    showNotification('Session cleared. Please sign in with your role credentials.', 'success');
   };
 
   // Vehicle detail navigation
@@ -196,9 +377,21 @@ export const App: React.FC = () => {
     }
   };
 
-  // Tab switching resets single-vehicle view
+  // Tab switching with RBAC Permission enforcement
   const handleTabChange = (tab: NavTab) => {
     setIsMobileMenuOpen(false);
+
+    if (currentUser) {
+      const allowed = ROLE_PERMISSIONS[currentUser.role]?.allowedTabs || [];
+      if (!allowed.includes(tab)) {
+        showNotification(
+          `Tab "${tab}" is not permitted for ${ROLE_CONFIGS[currentUser.role].badgeLabel}.`,
+          'error'
+        );
+        return;
+      }
+    }
+
     if (tab === currentTab && !selectedVehicleId) return;
     setSelectedVehicleId(null);
     setCurrentTab(tab);
@@ -376,16 +569,17 @@ export const App: React.FC = () => {
   };
 
   const handleQRSelectVehicle = (vehicleId: string, action: 'view' | 'trip') => {
+    setIsQRScannerOpen(false);
     if (action === 'view') {
       setVehicleFromTab('vehicles');
       setSelectedVehicleId(vehicleId);
-      window.history.pushState({ tab: 'vehicles', vehicleId }, '', `#vehicles/${vehicleId}`);
+      window.history.replaceState({ tab: 'vehicles', vehicleId }, '', `#vehicles/${vehicleId}`);
     } else {
       // Open trips tab with vehicle pre-selected for quick trip entry
-      setPreselectedTripVehicleId(vehicleId);
       setSelectedVehicleId(null);
+      setPreselectedTripVehicleId(vehicleId);
       setCurrentTab('trips');
-      window.history.pushState({ tab: 'trips', vehicleId: null }, '', '#trips');
+      window.history.replaceState({ tab: 'trips', vehicleId: null }, '', '#trips');
     }
   };
 
@@ -393,6 +587,29 @@ export const App: React.FC = () => {
 
   // Browser notifications for critical alerts
   useAlertNotifications(alerts);
+
+  // If user is not authenticated, render Login Page
+  if (!currentUser) {
+    const gatePinSetting = settings.find(s => s.key === 'SECURITY_GATE_PIN')?.value;
+    const driverPinSetting = settings.find(s => s.key === 'DRIVER_PIN')?.value;
+    let customUsers: typeof DEFAULT_USERS | undefined = undefined;
+    const usersSetting = settings.find(s => s.key === 'APP_USERS_JSON')?.value;
+    if (usersSetting) {
+      try {
+        const parsed = JSON.parse(usersSetting);
+        if (Array.isArray(parsed) && parsed.length > 0) customUsers = parsed;
+      } catch {}
+    }
+
+    return (
+      <LoginPage
+        onLogin={handleLogin}
+        gatePin={gatePinSetting}
+        driverPin={driverPinSetting}
+        customUsers={customUsers}
+      />
+    );
+  }
 
   const tabTitles: Record<NavTab, string> = {
     dashboard: 'Executive Fleet Dashboard',
@@ -410,13 +627,16 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 overflow-hidden font-sans">
-      {/* Deep Navy Sidebar with Mobile Drawer */}
+      {/* Deep Navy Sidebar with Mobile Drawer & User Profile Card */}
       <Sidebar
         currentTab={currentTab}
         onSelectTab={handleTabChange}
         alertCount={activeAlertCount}
         isOpen={isMobileMenuOpen}
         onClose={handleCloseMobileMenu}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        onSwitchRole={handleSwitchRole}
       />
 
       {/* Main Workspace */}
@@ -432,6 +652,8 @@ export const App: React.FC = () => {
           }}
           title={selectedVehicleId ? 'Vehicle History & Analytics' : tabTitles[currentTab]}
           onOpenMobileMenu={handleOpenMobileMenu}
+          currentUser={currentUser}
+          onSwitchRole={handleSwitchRole}
         />
 
         {/* Content Area */}
@@ -483,6 +705,8 @@ export const App: React.FC = () => {
                 onSelectVehicle={handleSelectVehicle}
                 onNavigateTab={handleTabChange}
                 onAddTrip={() => setCurrentTab('trips')}
+                onOpenQRScanner={handleOpenQRScanner}
+                currentUser={currentUser}
               />
             ) : currentTab === 'vehicles' ? (
               <Vehicles
@@ -491,6 +715,7 @@ export const App: React.FC = () => {
                 onAddVehicle={handleAddVehicle}
                 onUpdateVehicle={handleUpdateVehicle}
                 onDeleteVehicle={handleDeleteVehicle}
+                currentUser={currentUser}
               />
             ) : currentTab === 'trips' ? (
               <Trips
@@ -502,6 +727,7 @@ export const App: React.FC = () => {
                 onExportCSV={() => handleExportCSV('trips')}
                 preselectedVehicleId={preselectedTripVehicleId}
                 onPreselectedConsumed={() => setPreselectedTripVehicleId(null)}
+                currentUser={currentUser}
               />
             ) : currentTab === 'fuel' ? (
               <FuelPage
@@ -513,6 +739,7 @@ export const App: React.FC = () => {
                 onExportCSV={() => handleExportCSV('fuel')}
                 preselectedVehicleId={preselectedFuelVehicleId}
                 onPreselectedConsumed={() => setPreselectedFuelVehicleId(null)}
+                currentUser={currentUser}
               />
             ) : currentTab === 'maintenance' ? (
               <MaintenancePage
@@ -541,6 +768,7 @@ export const App: React.FC = () => {
                 onUpdateExpense={handleUpdateExpense}
                 onDeleteExpense={handleDeleteExpense}
                 onExportCSV={() => handleExportCSV('expenses')}
+                currentUser={currentUser}
               />
             ) : currentTab === 'alerts' ? (
               <ServiceAlertsPage
@@ -572,8 +800,10 @@ export const App: React.FC = () => {
         isOpen={isQRScannerOpen}
         onClose={handleCloseQRScanner}
         vehicles={vehicles}
+        trips={trips}
         onSelectVehicle={handleQRSelectVehicle}
       />
+
 
       {/* Global Toast Notification */}
       {notification && (

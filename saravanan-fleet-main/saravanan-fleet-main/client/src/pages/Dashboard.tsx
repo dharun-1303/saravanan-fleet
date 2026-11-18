@@ -12,6 +12,7 @@ import {
   Clock,
   ArrowRight,
   TrendingUp,
+  QrCode,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -30,7 +31,7 @@ import {
 } from 'recharts';
 import { KPICard } from '../components/KPICard';
 import { StatusBadge } from '../components/StatusBadge';
-import { Vehicle, Trip, AlertItem, AnalyticsSummary } from '../types';
+import { Vehicle, Trip, AlertItem, AnalyticsSummary, AuthUser, ROLE_PERMISSIONS } from '../types';
 import { formatINR, formatKM, formatDate } from '../utils/formatters';
 
 interface DashboardProps {
@@ -41,6 +42,8 @@ interface DashboardProps {
   onSelectVehicle: (vehicleId: string) => void;
   onNavigateTab: (tab: any) => void;
   onAddTrip: () => void;
+  onOpenQRScanner?: () => void;
+  currentUser?: AuthUser | null;
 }
 
 const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
@@ -53,7 +56,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onSelectVehicle,
   onNavigateTab,
   onAddTrip,
+  onOpenQRScanner,
+  currentUser,
 }) => {
+  const canAddTrip = currentUser ? ROLE_PERMISSIONS[currentUser.role]?.canAddTrip : true;
   const [quickFilter, setQuickFilter] = useState<'all' | 'this_month' | 'previous_month'>('this_month');
 
   const activeVehicles = vehicles.filter(v => v.active);
@@ -86,13 +92,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={onAddTrip}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center gap-1.5"
-            >
-              <MapPin className="w-4 h-4" />
-              <span>Log Trip</span>
-            </button>
+            {onOpenQRScanner && (
+              <button
+                onClick={onOpenQRScanner}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-emerald-600/30 transition-all active:scale-95 flex items-center gap-1.5"
+                title="Scan Vehicle QR code to Log Trip or View History"
+              >
+                <QrCode className="w-4 h-4" />
+                <span>Scan QR</span>
+              </button>
+            )}
+            {canAddTrip && (
+              <button
+                onClick={onAddTrip}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl text-xs shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center gap-1.5"
+              >
+                <MapPin className="w-4 h-4" />
+                <span>Log Trip</span>
+              </button>
+            )}
             <button
               onClick={() => onNavigateTab('reports')}
               className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl text-xs backdrop-blur-xs transition-all active:scale-95"

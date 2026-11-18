@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Truck, Plus, Search, Filter, QrCode, Edit2, Trash2, ArrowRight, CheckCircle2, X, Upload, Image } from 'lucide-react';
-import { Vehicle } from '../types';
+import { Vehicle, AuthUser, ROLE_PERMISSIONS } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { QRModal } from '../components/QRModal';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -12,6 +12,7 @@ interface VehiclesProps {
   onAddVehicle: (data: Partial<Vehicle>) => Promise<void>;
   onUpdateVehicle: (id: string, data: Partial<Vehicle>) => Promise<void>;
   onDeleteVehicle?: (id: string) => Promise<void>;
+  currentUser?: AuthUser | null;
 }
 
 export const Vehicles: React.FC<VehiclesProps> = ({
@@ -20,7 +21,10 @@ export const Vehicles: React.FC<VehiclesProps> = ({
   onAddVehicle,
   onUpdateVehicle,
   onDeleteVehicle,
+  currentUser,
 }) => {
+  const userRole = currentUser?.role || 'super_admin';
+  const permissions = ROLE_PERMISSIONS[userRole] || ROLE_PERMISSIONS.super_admin;
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFuel, setSelectedFuel] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -153,13 +157,15 @@ export const Vehicles: React.FC<VehiclesProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={handleOpenAdd}
-          className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-blue-500/20 transition-all active:scale-95 flex-shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Vehicle</span>
-        </button>
+        {permissions.canAddVehicle && (
+          <button
+            onClick={handleOpenAdd}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-blue-500/20 transition-all active:scale-95 flex-shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Vehicle</span>
+          </button>
+        )}
       </div>
 
       {/* Vehicle Cards Grid */}
@@ -223,14 +229,16 @@ export const Vehicles: React.FC<VehiclesProps> = ({
                 </button>
 
                 <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={(e) => handleOpenEdit(v, e)}
-                    className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
-                    title="Edit vehicle details"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  {onDeleteVehicle && (
+                  {permissions.canEditVehicle && (
+                    <button
+                      onClick={(e) => handleOpenEdit(v, e)}
+                      className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+                      title="Edit vehicle details"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  {permissions.canDeleteVehicle && onDeleteVehicle && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

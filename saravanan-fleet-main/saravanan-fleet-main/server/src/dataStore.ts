@@ -161,6 +161,8 @@ export class DataStore {
       { key: 'SYNC_INTERVAL_SEC', value: '20', description: 'Background polling interval for Google Sheets sync' },
       { key: 'COMPANY_NAME', value: 'Saravanan Electricals & Engineering Pvt Ltd', description: 'Company legal display name' },
       { key: 'CURRENCY', value: 'INR', description: 'Currency symbol formatting' },
+      { key: 'SECURITY_GATE_PIN', value: '9999', description: '4-digit PIN for Security Gate tablet access' },
+      { key: 'DRIVER_PIN', value: '1234', description: '4-digit PIN for driver terminal sign-in' },
     ];
 
     if (this.sheetsClient.isConfigured()) {
@@ -519,6 +521,45 @@ export class DataStore {
     return this.trips.filter(t => t.vehicle_id === targetId || t.vehicle_id === vehicleId);
   }
 
+  public getActiveTripForVehicle(vehicleId: string): Trip | null {
+    const v = this.getVehicleById(vehicleId);
+    const targetId = v ? v.vehicle_id : vehicleId;
+    const clean = vehicleId.trim().toLowerCase();
+    const cleanNoSpace = clean.replace(/[\s\-_]/g, '');
+
+    const matchingTrips = this.trips.filter(t => {
+      const matchesVehicle =
+        t.vehicle_id === targetId ||
+        t.vehicle_id === vehicleId ||
+        (v && (
+          t.vehicle_id.toLowerCase() === v.vehicle_id.toLowerCase() ||
+          t.vehicle_id.toLowerCase() === v.registration_number.toLowerCase() ||
+          t.vehicle_id.toLowerCase().replace(/[\s\-_]/g, '') === cleanNoSpace
+        ));
+      if (!matchesVehicle) return false;
+
+      const hasNoEndKm =
+        t.end_km === null ||
+        t.end_km === undefined ||
+        String(t.end_km).trim() === '' ||
+        isNaN(Number(t.end_km));
+      const isTripStatusActive =
+        t.trip_status === 'IN_TRANSIT' ||
+        (t.trip_status as string) === 'PENDING_EXIT' ||
+        t.gate_status === 'PENDING_EXIT' ||
+        t.status === 'IN_TRANSIT' ||
+        t.status === 'UNFINISHED';
+      const isNotCompleted =
+        t.trip_status !== 'COMPLETED' &&
+        t.status !== 'COMPLETED' &&
+        t.gate_status !== 'COMPLETED';
+
+      return (hasNoEndKm || isTripStatusActive) && isNotCompleted;
+    });
+
+    return matchingTrips.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] || null;
+  }
+
   public getFuelRecords(vehicleId?: string): FuelRecord[] {
     if (!vehicleId) return this.fuelRecords;
     const v = this.getVehicleById(vehicleId);
@@ -682,7 +723,10 @@ export class DataStore {
       merged.enroute = updates.enroute ? updates.enroute.trim() : undefined;
     }
     
-    if (merged.end_km !== null && merged.end_km !== undefined && merged.end_km >= merged.start_km) {
+    const hasEndKm = merged.end_km !== null && merged.end_km !== undefined && String(merged.end_km).trim() !== '' && !isNaN(Number(merged.end_km));
+    if (hasEndKm && Number(merged.end_km) >= Number(merged.start_km)) {
+      merged.start_km = Number(merged.start_km);
+      merged.end_km = Number(merged.end_km);
       merged.distance = merged.end_km - merged.start_km;
       if (updates.status) {
         merged.status = updates.status;
@@ -690,7 +734,7 @@ export class DataStore {
         merged.status = updates.trip_status;
       } else if (merged.gate_status === 'COMPLETED') {
         merged.status = 'COMPLETED';
-      } else if (updates.gate_status === 'PENDING_ENTRY') {
+      } else if (updates.gate_status === 'PENDING_ENTRY' || merged.gate_status === 'PENDING_ENTRY') {
         merged.status = 'UNFINISHED';
       } else {
         merged.status = 'COMPLETED';
@@ -707,24 +751,44 @@ export class DataStore {
 
     this.trips[index] = merged;
 
-    if (this.sheetsClient.isConfigured() && merged.sheet_name && merged.row_index) {
+    if (this.sheetsClient.isConfigured()) {
+      const vehicle = this.vehicles.find(v => v.vehicle_id === merged.vehicle_id);
+      const targetTab = merged.sheet_name || vehicle?.sheet_tab_name || 'Trips';
       try {
-        await this.sheetsClient.updateRow(merged.sheet_name, merged.row_index, [
-          merged.date,
-          merged.from,
-          merged.to,
-          merged.start_km,
-          merged.end_km ?? '',
-          merged.distance,
-          merged.remark,
-          merged.amount,
-          merged.gate_status || '',
-          merged.gate_out_time || '',
-          merged.gate_out_by || '',
-          merged.gate_in_time || '',
-          merged.gate_in_by || '',
-          merged.enroute || '',
-        ]);
+        let targetRowIndex = merged.row_index;
+        if (!targetRowIndex || targetRowIndex <= 1) {
+          const rows = await this.sheetsClient.readSheetValues(targetTab);
+          const foundIdx = rows.findIndex((r, idx) => {
+            if (idx === 0) return false;
+            const rDate = (r[0] || '').toString();
+            const rStart = parseFloat(r[3]) || 0;
+            return rDate === existing.date && rStart === existing.start_km;
+          });
+          if (foundIdx > 0) {
+            targetRowIndex = foundIdx + 1;
+            merged.row_index = targetRowIndex;
+            merged.sheet_name = targetTab;
+          }
+        }
+
+        if (targetRowIndex && targetRowIndex > 1) {
+          await this.sheetsClient.updateRow(targetTab, targetRowIndex, [
+            merged.date,
+            merged.from,
+            merged.to,
+            merged.start_km,
+            merged.end_km ?? '',
+            merged.distance,
+            merged.remark,
+            merged.amount,
+            merged.gate_status || '',
+            merged.gate_out_time || '',
+            merged.gate_out_by || '',
+            merged.gate_in_time || '',
+            merged.gate_in_by || '',
+            merged.enroute || '',
+          ]);
+        }
       } catch (err: any) {
         console.error('[DataStore] Error updating trip in Sheets:', err.message);
       }

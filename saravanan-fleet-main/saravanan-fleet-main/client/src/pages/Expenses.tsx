@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Receipt, Plus, Search, Download, Edit2, Trash2, X, AlertCircle } from 'lucide-react';
-import { ExpenseRecord, Vehicle } from '../types';
+import { ExpenseRecord, Vehicle, AuthUser, ROLE_PERMISSIONS } from '../types';
 import { KPICard } from '../components/KPICard';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { formatINR, formatDate } from '../utils/formatters';
@@ -12,6 +12,7 @@ interface ExpensesProps {
   onUpdateExpense: (id: string, data: Partial<ExpenseRecord>) => Promise<void>;
   onDeleteExpense?: (id: string) => Promise<void>;
   onExportCSV: () => void;
+  currentUser?: AuthUser | null;
 }
 
 export const ExpensesPage: React.FC<ExpensesProps> = ({
@@ -21,7 +22,10 @@ export const ExpensesPage: React.FC<ExpensesProps> = ({
   onUpdateExpense,
   onDeleteExpense,
   onExportCSV,
+  currentUser,
 }) => {
+  const userRole = currentUser?.role || 'super_admin';
+  const permissions = ROLE_PERMISSIONS[userRole] || ROLE_PERMISSIONS.super_admin;
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState<string>('all');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -213,20 +217,24 @@ export const ExpensesPage: React.FC<ExpensesProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={onExportCSV}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
-          >
-            <Download className="w-4 h-4 text-slate-500" />
-            <span>Export CSV</span>
-          </button>
-          <button
-            onClick={handleOpenAdd}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-blue-500/20 transition-all active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Expense</span>
-          </button>
+          {permissions.canExportCSV && (
+            <button
+              onClick={onExportCSV}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold shadow-2xs transition-colors"
+            >
+              <Download className="w-4 h-4 text-slate-500" />
+              <span>Export CSV</span>
+            </button>
+          )}
+          {permissions.canAddExpense && (
+            <button
+              onClick={handleOpenAdd}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm shadow-blue-500/20 transition-all active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Expense</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -265,14 +273,16 @@ export const ExpensesPage: React.FC<ExpensesProps> = ({
                     {exp.notes} {exp.recorded_by && `(${exp.recorded_by})`}
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={() => handleOpenEdit(exp)}
-                      className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
-                      title="Edit expense"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    {onDeleteExpense && (
+                    {permissions.canEditExpense && (
+                      <button
+                        onClick={() => handleOpenEdit(exp)}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+                        title="Edit expense"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {permissions.canDeleteExpense && onDeleteExpense && (
                       <button
                         onClick={() => setDeletingExp(exp)}
                         className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors ml-1"
