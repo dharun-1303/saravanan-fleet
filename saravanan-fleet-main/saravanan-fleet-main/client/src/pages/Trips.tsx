@@ -314,6 +314,32 @@ export const Trips: React.FC<TripsProps> = ({
     setIsModalOpen(true);
   };
 
+  const canModifyTrip = (t: Trip) => {
+    if (userRole === 'super_admin' || userRole === 'operations_manager') {
+      return true;
+    }
+    if (userRole === 'driver') {
+      const driverName = (
+        currentUser?.driverName ||
+        (currentUser?.name && !currentUser.name.includes('(QR Scan)') ? currentUser.name : '') ||
+        ''
+      ).trim().toLowerCase();
+      const isOwner = Boolean(
+        driverName &&
+        t.driver &&
+        (t.driver.toLowerCase().includes(driverName) || driverName.includes(t.driver.toLowerCase()))
+      );
+      const isScannedVehicle = Boolean(
+        (preselectedVehicleId && t.vehicle_id === preselectedVehicleId) ||
+        (selectedVehicle !== 'all' && t.vehicle_id === selectedVehicle)
+      );
+      const isActiveTrip = t.status !== 'COMPLETED' && t.gate_status !== 'COMPLETED';
+
+      return isOwner || (isScannedVehicle && isActiveTrip) || (Boolean(currentUser?.canBypassQR) && isScannedVehicle);
+    }
+    return false;
+  };
+
   const calculatedDistance = () => {
     const s = parseFloat(formData.start_km);
     const e = parseFloat(formData.end_km);
@@ -502,6 +528,29 @@ export const Trips: React.FC<TripsProps> = ({
       matchesStatus = t.status === 'COMPLETED';
     } else if (selectedStatus === 'unfinished') {
       matchesStatus = t.status === 'UNFINISHED' || t.status === 'IN_TRANSIT';
+    }
+
+    // Driver privacy filter: Drivers must not view other drivers' private logs
+    if (userRole === 'driver') {
+      const driverName = (
+        currentUser?.driverName ||
+        (currentUser?.name && !currentUser.name.includes('(QR Scan)') ? currentUser.name : '') ||
+        ''
+      ).trim().toLowerCase();
+      const isOwner = Boolean(
+        driverName &&
+        t.driver &&
+        (t.driver.toLowerCase().includes(driverName) || driverName.includes(t.driver.toLowerCase()))
+      );
+      const isScannedVehicle = Boolean(
+        (preselectedVehicleId && t.vehicle_id === preselectedVehicleId) ||
+        (selectedVehicle !== 'all' && t.vehicle_id === selectedVehicle)
+      );
+      const isActiveTrip = t.status !== 'COMPLETED' && t.gate_status !== 'COMPLETED';
+
+      if (!isOwner && !(isScannedVehicle && isActiveTrip) && !(currentUser?.canBypassQR && isScannedVehicle)) {
+        return false;
+      }
     }
 
     return matchesSearch && matchesVehicle && matchesTab && matchesStatus;
@@ -863,8 +912,8 @@ export const Trips: React.FC<TripsProps> = ({
                           </span>
                         )}
 
-                        {/* Edit & Delete Action Buttons (Checked against Role Permissions) */}
-                        {permissions.canEditTrip && (
+                        {/* Edit & Delete Action Buttons (Checked against Role Permissions & Driver Ownership) */}
+                        {permissions.canEditTrip && canModifyTrip(trip) && (
                           <button
                             onClick={() => handleOpenEdit(trip)}
                             className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
@@ -873,7 +922,7 @@ export const Trips: React.FC<TripsProps> = ({
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {permissions.canDeleteTrip && onDeleteTrip && (
+                        {permissions.canDeleteTrip && onDeleteTrip && canModifyTrip(trip) && (
                           <button
                             onClick={() => setDeletingTrip(trip)}
                             className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
@@ -1361,7 +1410,7 @@ export const Trips: React.FC<TripsProps> = ({
       <ConfirmModal
         isOpen={Boolean(deletingTrip)}
         title="Delete Trip Record"
-        message={`Are you sure you want to permanently delete this trip from ${deletingTrip?.from} to ${deletingTrip?.to} (${deletingTrip?.distance} km) on ${formatDate(deletingTrip?.date || '')}? This row will also be permanently deleted from Google Sheets.`}
+        message={`Are you sure you want to delete this trip from ${deletingTrip?.from || '—'} to ${deletingTrip?.to || '—'} (${deletingTrip?.distance || 0} km) on ${formatDate(deletingTrip?.date || '')}? This action will permanently remove the record and sync with Google Sheets.`}
         isLoading={isDeleting}
         onConfirm={async () => {
           if (!deletingTrip || !onDeleteTrip) return;

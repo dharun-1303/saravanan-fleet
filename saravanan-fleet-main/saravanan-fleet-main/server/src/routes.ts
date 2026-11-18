@@ -179,7 +179,34 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
   router.put('/trips/:id', async (req: Request, res: Response) => {
     try {
-      const updated = await dataStore.updateTrip(String(req.params.id), req.body);
+      const tripId = String(req.params.id);
+      const userRole = (req.headers['x-user-role'] as string) || (req.body.userRole as string);
+      const driverName = (req.headers['x-driver-name'] as string) || (req.body.driverName as string);
+
+      const existingTrip = dataStore.getTrips().find(t => t.trip_id === tripId);
+      if (!existingTrip) {
+        res.status(404).json({ error: 'Trip not found' });
+        return;
+      }
+
+      // If requested by a driver, verify it belongs to that driver or is an active trip / QR scan trip
+      if (userRole === 'driver') {
+        const isOwner = Boolean(
+          driverName &&
+          existingTrip.driver &&
+          (existingTrip.driver.toLowerCase().includes(driverName.toLowerCase()) ||
+           driverName.toLowerCase().includes(existingTrip.driver.toLowerCase()))
+        );
+        const isActive = existingTrip.status !== 'COMPLETED' && existingTrip.gate_status !== 'COMPLETED';
+        const isQRBypass = driverName.includes('QR Scan') || driverName.toLowerCase().includes('driver');
+
+        if (!isOwner && !isActive && !isQRBypass) {
+          res.status(403).json({ error: 'Drivers can only update their own or active trips' });
+          return;
+        }
+      }
+
+      const updated = await dataStore.updateTrip(tripId, req.body);
       if (!updated) {
         res.status(404).json({ error: 'Trip not found' });
         return;
@@ -192,7 +219,34 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
   router.delete('/trips/:id', async (req: Request, res: Response) => {
     try {
-      const success = await dataStore.deleteTrip(String(req.params.id));
+      const tripId = String(req.params.id);
+      const userRole = (req.headers['x-user-role'] as string) || (req.query.userRole as string);
+      const driverName = (req.headers['x-driver-name'] as string) || (req.query.driverName as string);
+
+      const existingTrip = dataStore.getTrips().find(t => t.trip_id === tripId);
+      if (!existingTrip) {
+        res.status(404).json({ error: 'Trip not found' });
+        return;
+      }
+
+      // If requested by a driver, verify it belongs to that driver or is an active trip / QR scan trip
+      if (userRole === 'driver') {
+        const isOwner = Boolean(
+          driverName &&
+          existingTrip.driver &&
+          (existingTrip.driver.toLowerCase().includes(driverName.toLowerCase()) ||
+           driverName.toLowerCase().includes(existingTrip.driver.toLowerCase()))
+        );
+        const isActive = existingTrip.status !== 'COMPLETED' && existingTrip.gate_status !== 'COMPLETED';
+        const isQRBypass = driverName.includes('QR Scan') || driverName.toLowerCase().includes('driver');
+
+        if (!isOwner && !isActive && !isQRBypass) {
+          res.status(403).json({ error: 'Drivers can only delete their own or active trips' });
+          return;
+        }
+      }
+
+      const success = await dataStore.deleteTrip(tripId);
       if (!success) {
         res.status(404).json({ error: 'Trip not found' });
         return;

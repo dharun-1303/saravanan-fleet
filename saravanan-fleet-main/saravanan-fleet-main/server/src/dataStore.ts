@@ -1055,9 +1055,11 @@ export class DataStore {
     const trip = this.trips.find(t => t.trip_id === tripId);
     if (!trip) return false;
 
-    if (this.sheetsClient.isConfigured() && trip.sheet_name) {
+    if (this.sheetsClient.isConfigured()) {
+      const vehicle = this.vehicles.find(v => v.vehicle_id === trip.vehicle_id);
+      const targetTab = trip.sheet_name || vehicle?.sheet_tab_name || 'Trips';
       try {
-        const rows = await this.sheetsClient.readSheetValues(trip.sheet_name);
+        const rows = await this.sheetsClient.readSheetValues(targetTab);
         let targetRowIndex = trip.row_index || -1;
         // Verify if row_index matches the row in Google Sheets
         if (targetRowIndex > 1 && rows[targetRowIndex - 1]) {
@@ -1084,7 +1086,7 @@ export class DataStore {
         }
 
         if (targetRowIndex > 1) {
-          await this.sheetsClient.deleteRow(trip.sheet_name, targetRowIndex);
+          await this.sheetsClient.deleteRow(targetTab, targetRowIndex);
         }
       } catch (err: any) {
         console.error('[DataStore] Error deleting trip from Sheets:', err.message);

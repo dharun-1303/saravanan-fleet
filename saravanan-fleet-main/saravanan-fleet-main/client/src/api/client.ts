@@ -10,6 +10,21 @@ function resolveApiBase(): string {
 
 export const API_BASE = resolveApiBase();
 
+function getAuthHeaders(): Record<string, string> {
+  try {
+    const saved = localStorage.getItem('saravanan_fleet_auth');
+    if (saved) {
+      const u = JSON.parse(saved);
+      return {
+        'x-user-role': u.role || '',
+        'x-user-id': u.id || '',
+        'x-driver-name': u.driverName || u.name || '',
+      };
+    }
+  } catch {}
+  return {};
+}
+
 export const api = {
   // Sync
   async getSyncStatus(): Promise<SyncStatus> {
@@ -97,16 +112,23 @@ export const api = {
   async updateTrip(id: string, data: Partial<Trip>): Promise<Trip> {
     const res = await fetch(`${API_BASE}/trips/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error('Failed to update trip');
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to update trip');
+    }
     return res.json();
   },
 
   async deleteTrip(id: string): Promise<boolean> {
     const res = await fetch(`${API_BASE}/trips/${id}`, {
       method: 'DELETE',
+      headers: getAuthHeaders(),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
