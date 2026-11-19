@@ -34,8 +34,10 @@ export interface Trip {
   gate_status?: GateStatus;
   gate_out_time?: string;
   gate_out_by?: string;
+  security_guard_out?: string;
   gate_in_time?: string;
   gate_in_by?: string;
+  security_guard_in?: string;
 }
 
 export interface FuelRecord {

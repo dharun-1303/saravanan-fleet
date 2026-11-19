@@ -458,15 +458,26 @@ export const App: React.FC = () => {
       let updated: Trip | null = null;
       if (data.gate_status === 'DISPATCHED' && data.gate_out_time) {
         updated = await api.gateOutTrip(id, {
-          gate_out_by: data.gate_out_by || 'Gate Security Guard',
+          gate_out_by: data.security_guard_out || data.gate_out_by || 'Gate Security Guard',
+          security_guard_out: data.security_guard_out || data.gate_out_by || 'Gate Security Guard',
           gate_out_time: data.gate_out_time,
         });
       } else if (data.gate_status === 'COMPLETED' && data.gate_in_time) {
         updated = await api.gateInTrip(id, {
-          gate_in_by: data.gate_in_by || 'Gate Security Guard',
+          gate_in_by: data.security_guard_in || data.gate_in_by || 'Gate Security Guard',
+          security_guard_in: data.security_guard_in || data.gate_in_by || 'Gate Security Guard',
           gate_in_time: data.gate_in_time,
           end_km: data.end_km !== null && data.end_km !== undefined ? Number(data.end_km) : 0,
           enroute: data.enroute,
+        });
+      } else if (data.gate_status === 'PENDING_ENTRY' || (data.end_km !== undefined && data.end_km !== null && data.gate_status !== 'COMPLETED')) {
+        updated = await api.closeActiveTrip(id, {
+          end_km: Number(data.end_km),
+          distance: data.distance !== undefined ? Number(data.distance) : undefined,
+          enroute: data.enroute,
+          remarks: data.remark,
+          remark: data.remark,
+          gate_status: 'PENDING_ENTRY',
         });
       } else {
         updated = await api.updateTrip(id, data);
@@ -484,6 +495,8 @@ export const App: React.FC = () => {
         showNotification('Gate OUT confirmed: Vehicle departure authorized and marked In Transit.', 'success');
       } else if (data.gate_status === 'COMPLETED' && data.gate_in_time) {
         showNotification('Gate IN confirmed: Vehicle return verified and trip completed.', 'success');
+      } else if (data.gate_status === 'PENDING_ENTRY') {
+        showNotification('Trip closed: Vehicle return submitted, awaiting Gate IN security verification.', 'success');
       } else {
         showNotification('Trip updated successfully.', 'success');
       }

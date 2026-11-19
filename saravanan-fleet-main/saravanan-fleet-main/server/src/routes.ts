@@ -202,21 +202,21 @@ export function createFleetRouter(dataStore: DataStore): Router {
     });
   };
 
-  // Dedicated Gate Out Endpoint (supports both POST /trips/gate-out with body { trip_id } and POST /trips/:id/gate-out)
-  router.post(['/trips/gate-out', '/trips/:id/gate-out'], async (req: Request, res: Response) => {
+  // Dedicated Gate Out Endpoint (supports POST /trips/gate-out, POST /trips/:id/gate-out, PUT/PATCH /trips/:id/gate-out)
+  const handleGateOut = async (req: Request, res: Response) => {
     try {
       const tripId = req.body.trip_id || req.params.id;
       if (!tripId) {
-        res.status(400).json({ error: 'Trip ID is required for Gate Out' });
+        res.status(400).json({ success: false, error: 'Trip ID is required for Gate Out' });
         return;
       }
       const existingTrip = findTripById(String(tripId));
       if (!existingTrip) {
-        res.status(404).json({ error: 'Trip not found' });
+        res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
       const gateOutTime = req.body.gate_out_time || new Date().toISOString();
-      const gateOutBy = req.body.gate_out_by || 'Gate Security Guard';
+      const gateOutBy = req.body.security_guard_out || req.body.gate_out_by || 'Gate Security Guard';
 
       const updated = await dataStore.updateTrip(existingTrip.trip_id, {
         gate_status: 'DISPATCHED',
@@ -224,32 +224,84 @@ export function createFleetRouter(dataStore: DataStore): Router {
         trip_status: 'IN_TRANSIT',
         gate_out_time: gateOutTime,
         gate_out_by: gateOutBy,
+        security_guard_out: gateOutBy,
       });
       if (!updated) {
-        res.status(404).json({ error: 'Trip not found' });
+        res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
-      res.json(updated);
+      res.status(200).json({ success: true, trip: updated, ...updated });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ success: false, error: err.message });
     }
-  });
+  };
 
-  // Dedicated Gate In Endpoint (supports both POST /trips/gate-in with body { trip_id } and POST /trips/:id/gate-in)
-  router.post(['/trips/gate-in', '/trips/:id/gate-in'], async (req: Request, res: Response) => {
+  router.post(['/trips/gate-out', '/trips/:id/gate-out'], handleGateOut);
+  router.put('/trips/:id/gate-out', handleGateOut);
+  router.patch('/trips/:id/gate-out', handleGateOut);
+
+  // Dedicated Close Active Trip Endpoint (Driver QR / login flow: updates end_km, distance, enroute, remarks, gate_status='PENDING_ENTRY')
+  const handleCloseActiveTrip = async (req: Request, res: Response) => {
     try {
       const tripId = req.body.trip_id || req.params.id;
       if (!tripId) {
-        res.status(400).json({ error: 'Trip ID is required for Gate In' });
+        res.status(400).json({ success: false, error: 'Trip ID is required to close trip' });
         return;
       }
       const existingTrip = findTripById(String(tripId));
       if (!existingTrip) {
-        res.status(404).json({ error: 'Trip not found' });
+        res.status(404).json({ success: false, error: 'Trip not found' });
+        return;
+      }
+
+      const endKm = req.body.end_km !== undefined && req.body.end_km !== null ? Number(req.body.end_km) : existingTrip.end_km;
+      const startKm = existingTrip.start_km;
+      const distance = req.body.distance !== undefined
+        ? Number(req.body.distance)
+        : (endKm !== null && endKm !== undefined && !isNaN(endKm) && endKm >= startKm ? endKm - startKm : 0);
+      const remark = req.body.remarks !== undefined
+        ? String(req.body.remarks)
+        : (req.body.remark !== undefined ? String(req.body.remark) : existingTrip.remark);
+      const enroute = req.body.enroute !== undefined ? String(req.body.enroute) : existingTrip.enroute;
+
+      const updated = await dataStore.updateTrip(existingTrip.trip_id, {
+        end_km: endKm,
+        distance,
+        enroute,
+        remark,
+        gate_status: 'PENDING_ENTRY',
+        status: 'UNFINISHED',
+        trip_status: 'IN_TRANSIT',
+      });
+      if (!updated) {
+        res.status(404).json({ success: false, error: 'Trip not found' });
+        return;
+      }
+      res.status(200).json({ success: true, trip: updated, ...updated });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  };
+
+  router.post(['/trips/close-active', '/trips/:id/close-active', '/trips/:id/close'], handleCloseActiveTrip);
+  router.put(['/trips/:id/close-active', '/trips/:id/close'], handleCloseActiveTrip);
+  router.patch(['/trips/:id/close-active', '/trips/:id/close'], handleCloseActiveTrip);
+
+  // Dedicated Gate In Endpoint (supports POST /trips/gate-in, POST /trips/:id/gate-in, PUT/PATCH /trips/:id/gate-in)
+  const handleGateIn = async (req: Request, res: Response) => {
+    try {
+      const tripId = req.body.trip_id || req.params.id;
+      if (!tripId) {
+        res.status(400).json({ success: false, error: 'Trip ID is required for Gate In' });
+        return;
+      }
+      const existingTrip = findTripById(String(tripId));
+      if (!existingTrip) {
+        res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
       const gateInTime = req.body.gate_in_time || new Date().toISOString();
-      const gateInBy = req.body.gate_in_by || 'Gate Security Guard';
+      const gateInBy = req.body.security_guard_in || req.body.gate_in_by || 'Gate Security Guard';
       const endKm = Number(req.body.end_km);
 
       const updated = await dataStore.updateTrip(existingTrip.trip_id, {
@@ -258,20 +310,26 @@ export function createFleetRouter(dataStore: DataStore): Router {
         trip_status: 'COMPLETED',
         gate_in_time: gateInTime,
         gate_in_by: gateInBy,
+        security_guard_in: gateInBy,
         end_km: isNaN(endKm) ? existingTrip.end_km : endKm,
         enroute: req.body.enroute !== undefined ? req.body.enroute : existingTrip.enroute,
       });
       if (!updated) {
-        res.status(404).json({ error: 'Trip not found' });
+        res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
-      res.json(updated);
+      res.status(200).json({ success: true, trip: updated, ...updated });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ success: false, error: err.message });
     }
-  });
+  };
 
-  router.put('/trips/:id', async (req: Request, res: Response) => {
+  router.post(['/trips/gate-in', '/trips/:id/gate-in'], handleGateIn);
+  router.put('/trips/:id/gate-in', handleGateIn);
+  router.patch('/trips/:id/gate-in', handleGateIn);
+
+  // Standard Trip Update Route (supports both PUT and PATCH)
+  const handleTripUpdate = async (req: Request, res: Response) => {
     try {
       const rawTripId = String(req.params.id);
       const userRole = safeDecode((req.headers['x-user-role'] as string) || (req.body.userRole as string));
@@ -279,7 +337,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
       const existingTrip = findTripById(rawTripId);
       if (!existingTrip) {
-        res.status(404).json({ error: 'Trip not found' });
+        res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
 
@@ -296,21 +354,24 @@ export function createFleetRouter(dataStore: DataStore): Router {
         const isQRBypass = !driverName || driverName.includes('QR Scan') || driverName.toLowerCase().includes('fleet driver') || driverName.toLowerCase().includes('driver');
 
         if (!isDriverEmpty && !isOwner && !isActive && !isQRBypass) {
-          res.status(403).json({ error: 'Drivers can only update their own or active trips' });
+          res.status(403).json({ success: false, error: 'Drivers can only update their own or active trips' });
           return;
         }
       }
 
       const updated = await dataStore.updateTrip(existingTrip.trip_id, req.body);
       if (!updated) {
-        res.status(404).json({ error: 'Trip not found' });
+        res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
-      res.json(updated);
+      res.status(200).json({ success: true, trip: updated, ...updated });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ success: false, error: err.message });
     }
-  });
+  };
+
+  router.put('/trips/:id', handleTripUpdate);
+  router.patch('/trips/:id', handleTripUpdate);
 
   router.delete('/trips/:id', async (req: Request, res: Response) => {
     try {

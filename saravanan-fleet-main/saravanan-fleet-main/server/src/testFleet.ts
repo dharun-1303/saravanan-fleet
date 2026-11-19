@@ -136,36 +136,37 @@ async function runFleetVerificationTests() {
     throw new Error(`Expected gate_status PENDING_EXIT and status UNFINISHED, got ${gateTrip.gate_status} / ${gateTrip.status}`);
   }
 
-  // Gate Out approval
+  // Gate Out approval with security_guard_out
   const gateOutTime = new Date().toISOString();
   const dispatchedTrip = await store.updateTrip(gateTrip.trip_id, {
     gate_status: 'DISPATCHED',
     status: 'IN_TRANSIT',
     trip_status: 'IN_TRANSIT',
     gate_out_time: gateOutTime,
-    gate_out_by: 'Guard Ramesh (G-102)',
+    security_guard_out: 'Guard Ramesh (G-102)',
   });
 
-  if (!dispatchedTrip || dispatchedTrip.gate_status !== 'DISPATCHED' || dispatchedTrip.status !== 'IN_TRANSIT' || dispatchedTrip.gate_out_by !== 'Guard Ramesh (G-102)') {
+  if (!dispatchedTrip || dispatchedTrip.gate_status !== 'DISPATCHED' || dispatchedTrip.status !== 'IN_TRANSIT' || dispatchedTrip.gate_out_by !== 'Guard Ramesh (G-102)' || dispatchedTrip.security_guard_out !== 'Guard Ramesh (G-102)') {
     throw new Error('Gate Out dispatch update failed!');
   }
 
-  // Driver return logged -> Pending entry
+  // Driver return logged -> Pending entry with remarks alias
   const pendingEntryTrip = await store.updateTrip(gateTrip.trip_id, {
     end_km: 45140,
+    remarks: 'Driver trip closed',
     gate_status: 'PENDING_ENTRY',
   });
 
-  if (!pendingEntryTrip || pendingEntryTrip.gate_status !== 'PENDING_ENTRY') {
+  if (!pendingEntryTrip || pendingEntryTrip.gate_status !== 'PENDING_ENTRY' || pendingEntryTrip.remark !== 'Driver trip closed') {
     throw new Error('Pending Entry update failed!');
   }
 
-  // Gate In approval
+  // Gate In approval with security_guard_in
   const gateInTime = new Date().toISOString();
   const completedTrip = await store.updateTrip(gateTrip.trip_id, {
     gate_status: 'COMPLETED',
     gate_in_time: gateInTime,
-    gate_in_by: 'Guard Ramesh (G-102)',
+    security_guard_in: 'Guard Ramesh (G-102)',
     end_km: 45140,
     status: 'COMPLETED',
   });
@@ -175,6 +176,8 @@ async function runFleetVerificationTests() {
     completedTrip.gate_status !== 'COMPLETED' ||
     completedTrip.status !== 'COMPLETED' ||
     completedTrip.distance !== 140 ||
+    completedTrip.gate_in_by !== 'Guard Ramesh (G-102)' ||
+    completedTrip.security_guard_in !== 'Guard Ramesh (G-102)' ||
     !completedTrip.gate_in_time
   ) {
     throw new Error('Gate In completion verification failed!');

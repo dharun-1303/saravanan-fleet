@@ -713,7 +713,7 @@ export class DataStore {
     return newTrip;
   }
 
-  public async updateTrip(tripId: string, updates: Partial<Trip>): Promise<Trip | null> {
+  public async updateTrip(tripId: string, updates: Partial<Trip> & Record<string, any>): Promise<Trip | null> {
     const decodedId = decodeURIComponent(tripId);
     const index = this.trips.findIndex(
       t => t.trip_id === tripId || t.trip_id === decodedId || decodeURIComponent(t.trip_id) === decodedId
@@ -722,6 +722,24 @@ export class DataStore {
     
     const existing = this.trips[index];
     const merged = { ...existing, ...updates };
+
+    // Support field aliases
+    if (updates.security_guard_out && !updates.gate_out_by) {
+      merged.gate_out_by = updates.security_guard_out;
+    }
+    if (updates.gate_out_by && !updates.security_guard_out) {
+      merged.security_guard_out = updates.gate_out_by;
+    }
+    if (updates.security_guard_in && !updates.gate_in_by) {
+      merged.gate_in_by = updates.security_guard_in;
+    }
+    if (updates.gate_in_by && !updates.security_guard_in) {
+      merged.security_guard_in = updates.gate_in_by;
+    }
+    if (updates.remarks !== undefined && updates.remark === undefined) {
+      merged.remark = updates.remarks;
+    }
+
     if (updates.enroute !== undefined) {
       merged.enroute = updates.enroute ? updates.enroute.trim() : undefined;
     }
@@ -755,45 +773,57 @@ export class DataStore {
     this.trips[index] = merged;
 
     if (this.sheetsClient.isConfigured()) {
-      const vehicle = this.vehicles.find(v => v.vehicle_id === merged.vehicle_id);
-      const targetTab = merged.sheet_name || vehicle?.sheet_tab_name || 'Trips';
-      try {
-        let targetRowIndex = merged.row_index;
-        if (!targetRowIndex || targetRowIndex <= 1) {
-          const rows = await this.sheetsClient.readSheetValues(targetTab);
-          const foundIdx = rows.findIndex((r, idx) => {
-            if (idx === 0) return false;
-            const rDate = (r[0] || '').toString();
-            const rStart = parseFloat(r[3]) || 0;
-            return rDate === existing.date && rStart === existing.start_km;
-          });
-          if (foundIdx > 0) {
-            targetRowIndex = foundIdx + 1;
-            merged.row_index = targetRowIndex;
-            merged.sheet_name = targetTab;
+      const syncTask = (async () => {
+        const vehicle = this.vehicles.find(v => v.vehicle_id === merged.vehicle_id);
+        const targetTab = merged.sheet_name || vehicle?.sheet_tab_name || 'Trips';
+        try {
+          let targetRowIndex = merged.row_index;
+          if (!targetRowIndex || targetRowIndex <= 1) {
+            const rows = await this.sheetsClient.readSheetValues(targetTab);
+            const foundIdx = rows.findIndex((r, idx) => {
+              if (idx === 0) return false;
+              const rDate = (r[0] || '').toString();
+              const rStart = parseFloat(r[3]) || 0;
+              return rDate === existing.date && rStart === existing.start_km;
+            });
+            if (foundIdx > 0) {
+              targetRowIndex = foundIdx + 1;
+              merged.row_index = targetRowIndex;
+              merged.sheet_name = targetTab;
+            }
           }
-        }
 
-        if (targetRowIndex && targetRowIndex > 1) {
-          await this.sheetsClient.updateRow(targetTab, targetRowIndex, [
-            merged.date,
-            merged.from,
-            merged.to,
-            merged.start_km,
-            merged.end_km ?? '',
-            merged.distance,
-            merged.remark,
-            merged.amount,
-            merged.gate_status || '',
-            merged.gate_out_time || '',
-            merged.gate_out_by || '',
-            merged.gate_in_time || '',
-            merged.gate_in_by || '',
-            merged.enroute || '',
-          ]);
+          if (targetRowIndex && targetRowIndex > 1) {
+            await this.sheetsClient.updateRow(targetTab, targetRowIndex, [
+              merged.date,
+              merged.from,
+              merged.to,
+              merged.start_km,
+              merged.end_km ?? '',
+              merged.distance,
+              merged.remark,
+              merged.amount,
+              merged.gate_status || '',
+              merged.gate_out_time || '',
+              merged.gate_out_by || merged.security_guard_out || '',
+              merged.gate_in_time || '',
+              merged.gate_in_by || merged.security_guard_in || '',
+              merged.enroute || '',
+            ]);
+          }
+        } catch (err: any) {
+          console.error('[DataStore] Error updating trip in Sheets:', err.message);
         }
+      })();
+
+      try {
+        // Enforce a 2.5-second timeout guard so Google Sheets latency or rate limiting never hangs the HTTP response
+        await Promise.race([
+          syncTask,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Google Sheets sync timeout')), 2500)),
+        ]);
       } catch (err: any) {
-        console.error('[DataStore] Error updating trip in Sheets:', err.message);
+        console.warn('[DataStore] Google Sheets sync deferred to background for updateTrip:', err.message);
       }
     }
     return merged;

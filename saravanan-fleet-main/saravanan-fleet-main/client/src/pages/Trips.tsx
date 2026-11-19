@@ -586,6 +586,7 @@ export const Trips: React.FC<TripsProps> = ({
       trip_status: 'IN_TRANSIT',
       gate_out_time: currentTimestamp,
       gate_out_by: guard,
+      security_guard_out: guard,
     });
     setGateOutTrip(null);
   };
@@ -605,6 +606,7 @@ export const Trips: React.FC<TripsProps> = ({
       distance,
       gate_in_time: currentTimestamp,
       gate_in_by: guard,
+      security_guard_in: guard,
       ...(data.enroute !== undefined ? { enroute: data.enroute } : {}),
     });
     setGateInTrip(null);
