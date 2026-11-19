@@ -455,7 +455,30 @@ export const App: React.FC = () => {
 
   const handleUpdateTrip = async (id: string, data: Partial<Trip>) => {
     try {
-      await api.updateTrip(id, data);
+      let updated: Trip | null = null;
+      if (data.gate_status === 'DISPATCHED' && data.gate_out_time) {
+        updated = await api.gateOutTrip(id, {
+          gate_out_by: data.gate_out_by || 'Gate Security Guard',
+          gate_out_time: data.gate_out_time,
+        });
+      } else if (data.gate_status === 'COMPLETED' && data.gate_in_time) {
+        updated = await api.gateInTrip(id, {
+          gate_in_by: data.gate_in_by || 'Gate Security Guard',
+          gate_in_time: data.gate_in_time,
+          end_km: data.end_km !== null && data.end_km !== undefined ? Number(data.end_km) : 0,
+          enroute: data.enroute,
+        });
+      } else {
+        updated = await api.updateTrip(id, data);
+      }
+
+      // Optimistically update local trips state immediately
+      if (updated) {
+        setTrips(prev => prev.map(t => (t.trip_id === id ? { ...t, ...updated } : t)));
+      } else {
+        setTrips(prev => prev.map(t => (t.trip_id === id ? { ...t, ...data } : t)));
+      }
+
       await fetchAllData();
       if (data.gate_status === 'DISPATCHED') {
         showNotification('Gate OUT confirmed: Vehicle departure authorized and marked In Transit.', 'success');

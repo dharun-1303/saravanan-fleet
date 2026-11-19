@@ -177,16 +177,107 @@ export function createFleetRouter(dataStore: DataStore): Router {
     }
   });
 
+  // Helper to safely decode strings without throwing
+  const safeDecode = (val: any): string => {
+    if (!val) return '';
+    const s = String(val);
+    try { return decodeURIComponent(s); } catch { return s; }
+  };
+
+  // Helper to match a trip by any encoded or raw variant of trip_id
+  const findTripById = (id: string) => {
+    if (!id) return undefined;
+    const raw = String(id).trim();
+    const clean = safeDecode(raw).trim();
+    return dataStore.getTrips().find(t => {
+      const tRaw = String(t.trip_id).trim();
+      const tClean = safeDecode(tRaw).trim();
+      return (
+        tRaw === raw ||
+        tClean === clean ||
+        tRaw === clean ||
+        tClean === raw ||
+        encodeURIComponent(tRaw) === raw
+      );
+    });
+  };
+
+  // Dedicated Gate Out Endpoint (supports both POST /trips/gate-out with body { trip_id } and POST /trips/:id/gate-out)
+  router.post(['/trips/gate-out', '/trips/:id/gate-out'], async (req: Request, res: Response) => {
+    try {
+      const tripId = req.body.trip_id || req.params.id;
+      if (!tripId) {
+        res.status(400).json({ error: 'Trip ID is required for Gate Out' });
+        return;
+      }
+      const existingTrip = findTripById(String(tripId));
+      if (!existingTrip) {
+        res.status(404).json({ error: 'Trip not found' });
+        return;
+      }
+      const gateOutTime = req.body.gate_out_time || new Date().toISOString();
+      const gateOutBy = req.body.gate_out_by || 'Gate Security Guard';
+
+      const updated = await dataStore.updateTrip(existingTrip.trip_id, {
+        gate_status: 'DISPATCHED',
+        status: 'IN_TRANSIT',
+        trip_status: 'IN_TRANSIT',
+        gate_out_time: gateOutTime,
+        gate_out_by: gateOutBy,
+      });
+      if (!updated) {
+        res.status(404).json({ error: 'Trip not found' });
+        return;
+      }
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Dedicated Gate In Endpoint (supports both POST /trips/gate-in with body { trip_id } and POST /trips/:id/gate-in)
+  router.post(['/trips/gate-in', '/trips/:id/gate-in'], async (req: Request, res: Response) => {
+    try {
+      const tripId = req.body.trip_id || req.params.id;
+      if (!tripId) {
+        res.status(400).json({ error: 'Trip ID is required for Gate In' });
+        return;
+      }
+      const existingTrip = findTripById(String(tripId));
+      if (!existingTrip) {
+        res.status(404).json({ error: 'Trip not found' });
+        return;
+      }
+      const gateInTime = req.body.gate_in_time || new Date().toISOString();
+      const gateInBy = req.body.gate_in_by || 'Gate Security Guard';
+      const endKm = Number(req.body.end_km);
+
+      const updated = await dataStore.updateTrip(existingTrip.trip_id, {
+        gate_status: 'COMPLETED',
+        status: 'COMPLETED',
+        trip_status: 'COMPLETED',
+        gate_in_time: gateInTime,
+        gate_in_by: gateInBy,
+        end_km: isNaN(endKm) ? existingTrip.end_km : endKm,
+        enroute: req.body.enroute !== undefined ? req.body.enroute : existingTrip.enroute,
+      });
+      if (!updated) {
+        res.status(404).json({ error: 'Trip not found' });
+        return;
+      }
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   router.put('/trips/:id', async (req: Request, res: Response) => {
     try {
       const rawTripId = String(req.params.id);
-      const tripId = decodeURIComponent(rawTripId);
-      const userRole = (req.headers['x-user-role'] as string) || (req.body.userRole as string);
-      const driverName = (req.headers['x-driver-name'] as string) || (req.body.driverName as string);
+      const userRole = safeDecode((req.headers['x-user-role'] as string) || (req.body.userRole as string));
+      const driverName = safeDecode((req.headers['x-driver-name'] as string) || (req.body.driverName as string));
 
-      const existingTrip = dataStore.getTrips().find(
-        t => t.trip_id === tripId || t.trip_id === rawTripId || decodeURIComponent(t.trip_id) === tripId
-      );
+      const existingTrip = findTripById(rawTripId);
       if (!existingTrip) {
         res.status(404).json({ error: 'Trip not found' });
         return;
@@ -224,13 +315,10 @@ export function createFleetRouter(dataStore: DataStore): Router {
   router.delete('/trips/:id', async (req: Request, res: Response) => {
     try {
       const rawTripId = String(req.params.id);
-      const tripId = decodeURIComponent(rawTripId);
-      const userRole = (req.headers['x-user-role'] as string) || (req.query.userRole as string);
-      const driverName = (req.headers['x-driver-name'] as string) || (req.query.driverName as string);
+      const userRole = safeDecode((req.headers['x-user-role'] as string) || (req.query.userRole as string));
+      const driverName = safeDecode((req.headers['x-driver-name'] as string) || (req.query.driverName as string));
 
-      const existingTrip = dataStore.getTrips().find(
-        t => t.trip_id === tripId || t.trip_id === rawTripId || decodeURIComponent(t.trip_id) === tripId
-      );
+      const existingTrip = findTripById(rawTripId);
       if (!existingTrip) {
         res.status(404).json({ error: 'Trip not found' });
         return;

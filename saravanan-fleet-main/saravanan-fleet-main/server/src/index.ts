@@ -32,23 +32,16 @@ app.use(cors({
       allowedOrigins.includes(cleanOrigin) ||
       cleanOrigin.endsWith('.vercel.app') ||
       cleanOrigin.includes('localhost') ||
-      cleanOrigin.includes('127.0.0.1')
+      cleanOrigin.includes('127.0.0.1') ||
+      cleanOrigin.includes('192.168.') ||
+      cleanOrigin.includes('10.') ||
+      cleanOrigin.includes('172.')
     ) {
       return callback(null, true);
     }
-    return callback(null, false);
+    return callback(null, true);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: [
-    'Content-Type',
-    'Authorization',
-    'x-user-role',
-    'x-user-id',
-    'x-driver-name',
-    'Accept',
-    'Origin',
-    'X-Requested-With',
-  ],
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
@@ -203,7 +196,7 @@ if (fs.existsSync(clientDistPath)) {
 
 // Start Server locally if not running as serverless function
 if (!isServerless && process.env.NODE_ENV !== 'test') {
-  const server = app.listen(config.port, () => {
+  const server = app.listen(config.port, '0.0.0.0', () => {
     console.log(`\n======================================================`);
     console.log(`⚡ Saravanan Electricals Fleet Backend Online!`);
     console.log(`📡 URL: http://localhost:${config.port}`);

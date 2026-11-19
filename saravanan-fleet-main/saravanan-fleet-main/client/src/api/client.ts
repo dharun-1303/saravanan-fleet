@@ -15,11 +15,12 @@ function getAuthHeaders(): Record<string, string> {
     const saved = localStorage.getItem('saravanan_fleet_auth');
     if (saved) {
       const u = JSON.parse(saved);
-      return {
-        'x-user-role': u.role || '',
-        'x-user-id': u.id || '',
-        'x-driver-name': u.driverName || u.name || '',
-      };
+      const headers: Record<string, string> = {};
+      if (u.role) headers['x-user-role'] = encodeURIComponent(String(u.role));
+      if (u.id) headers['x-user-id'] = encodeURIComponent(String(u.id));
+      const dName = u.driverName || u.name;
+      if (dName) headers['x-driver-name'] = encodeURIComponent(String(dName));
+      return headers;
     }
   } catch {}
   return {};
@@ -107,6 +108,72 @@ export const api = {
       throw new Error(err.error || 'Failed to create trip');
     }
     return res.json();
+  },
+
+  async gateOutTrip(id: string, data: { gate_out_by: string; gate_out_time: string }): Promise<Trip> {
+    try {
+      const res = await fetch(`${API_BASE}/trips/gate-out`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          trip_id: id,
+          ...data,
+          gate_status: 'DISPATCHED',
+          status: 'IN_TRANSIT',
+          trip_status: 'IN_TRANSIT',
+        }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('POST /trips/gate-out failed, attempting PUT fallback:', e);
+    }
+
+    return this.updateTrip(id, {
+      gate_status: 'DISPATCHED',
+      status: 'IN_TRANSIT',
+      trip_status: 'IN_TRANSIT',
+      gate_out_time: data.gate_out_time,
+      gate_out_by: data.gate_out_by,
+    });
+  },
+
+  async gateInTrip(id: string, data: { gate_in_by: string; gate_in_time: string; end_km?: number | null; enroute?: string }): Promise<Trip> {
+    try {
+      const res = await fetch(`${API_BASE}/trips/gate-in`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          trip_id: id,
+          ...data,
+          gate_status: 'COMPLETED',
+          status: 'COMPLETED',
+          trip_status: 'COMPLETED',
+        }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('POST /trips/gate-in failed, attempting PUT fallback:', e);
+    }
+
+    return this.updateTrip(id, {
+      gate_status: 'COMPLETED',
+      status: 'COMPLETED',
+      trip_status: 'COMPLETED',
+      end_km: data.end_km,
+      gate_in_time: data.gate_in_time,
+      gate_in_by: data.gate_in_by,
+      enroute: data.enroute,
+    });
   },
 
   async updateTrip(id: string, data: Partial<Trip>): Promise<Trip> {

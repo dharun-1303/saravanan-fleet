@@ -52,7 +52,12 @@ export const GateOutModal: React.FC<GateOutModalProps> = ({
       });
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Failed to confirm gate out.');
+      const msg = err.message || '';
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Failed to execute')) {
+        setError('Network connection error: Unable to reach fleet backend. Please ensure the backend server is running on port 5001.');
+      } else {
+        setError(msg || 'Failed to confirm gate out.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -239,7 +244,12 @@ export const GateInModal: React.FC<GateInModalProps> = ({
       });
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Failed to confirm gate in.');
+      const msg = err.message || '';
+      if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Failed to execute')) {
+        setError('Network connection error: Unable to reach fleet backend. Please ensure the backend server is running on port 5001.');
+      } else {
+        setError(msg || 'Failed to confirm gate in.');
+      }
     } finally {
       setIsSubmitting(false);
     }
