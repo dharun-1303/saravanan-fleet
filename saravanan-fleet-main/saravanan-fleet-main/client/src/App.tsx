@@ -454,8 +454,20 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateTrip = async (id: string, data: Partial<Trip>) => {
-    await api.updateTrip(id, data);
-    await fetchAllData();
+    try {
+      await api.updateTrip(id, data);
+      await fetchAllData();
+      if (data.gate_status === 'DISPATCHED') {
+        showNotification('Gate OUT confirmed: Vehicle departure authorized and marked In Transit.', 'success');
+      } else if (data.gate_status === 'COMPLETED' && data.gate_in_time) {
+        showNotification('Gate IN confirmed: Vehicle return verified and trip completed.', 'success');
+      } else {
+        showNotification('Trip updated successfully.', 'success');
+      }
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to update trip record.', 'error');
+      throw err;
+    }
   };
 
   const handleDeleteTrip = async (id: string) => {

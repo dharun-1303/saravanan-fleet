@@ -9,6 +9,7 @@ interface GateOutModalProps {
   vehicle?: Vehicle;
   onClose: () => void;
   onConfirm: (data: { gate_out_by: string; gate_out_time: string }) => Promise<void>;
+  defaultGuardName?: string;
 }
 
 export const GateOutModal: React.FC<GateOutModalProps> = ({
@@ -17,19 +18,20 @@ export const GateOutModal: React.FC<GateOutModalProps> = ({
   vehicle,
   onClose,
   onConfirm,
+  defaultGuardName = 'Gate Security Guard',
 }) => {
-  const [securityName, setSecurityName] = useState('');
+  const [securityName, setSecurityName] = useState(defaultGuardName);
   const [confirmedCheck, setConfirmedCheck] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
-      setSecurityName(trip?.gate_out_by || '');
+      setSecurityName(trip?.gate_out_by || defaultGuardName || 'Gate Security Guard');
       setConfirmedCheck(true);
       setError(null);
     }
-  }, [isOpen, trip]);
+  }, [isOpen, trip, defaultGuardName]);
 
   if (!isOpen || !trip) return null;
 
@@ -40,11 +42,7 @@ export const GateOutModal: React.FC<GateOutModalProps> = ({
     e.preventDefault();
     setError(null);
 
-    const name = securityName.trim();
-    if (!name) {
-      setError('Please enter the Security Guard Name / ID.');
-      return;
-    }
+    const name = securityName.trim() || defaultGuardName || 'Gate Security Guard';
 
     try {
       setIsSubmitting(true);
@@ -180,6 +178,7 @@ interface GateInModalProps {
   vehicle?: Vehicle;
   onClose: () => void;
   onConfirm: (data: { gate_in_by: string; gate_in_time: string; end_km: number; enroute?: string }) => Promise<void>;
+  defaultGuardName?: string;
 }
 
 export const GateInModal: React.FC<GateInModalProps> = ({
@@ -188,8 +187,9 @@ export const GateInModal: React.FC<GateInModalProps> = ({
   vehicle,
   onClose,
   onConfirm,
+  defaultGuardName = 'Gate Security Guard',
 }) => {
-  const [securityName, setSecurityName] = useState('');
+  const [securityName, setSecurityName] = useState(defaultGuardName);
   const [endKmInput, setEndKmInput] = useState('');
   const [hasEnroute, setHasEnroute] = useState<'No' | 'Yes'>('No');
   const [enrouteInput, setEnrouteInput] = useState('');
@@ -198,13 +198,13 @@ export const GateInModal: React.FC<GateInModalProps> = ({
 
   useEffect(() => {
     if (isOpen && trip) {
-      setSecurityName(trip.gate_in_by || '');
+      setSecurityName(trip.gate_in_by || defaultGuardName || 'Gate Security Guard');
       setEndKmInput(trip.end_km !== null && trip.end_km !== undefined ? trip.end_km.toString() : '');
       setHasEnroute(trip.enroute && trip.enroute.trim() ? 'Yes' : 'No');
       setEnrouteInput(trip.enroute || '');
       setError(null);
     }
-  }, [isOpen, trip]);
+  }, [isOpen, trip, defaultGuardName]);
 
   if (!isOpen || !trip) return null;
 
@@ -217,11 +217,7 @@ export const GateInModal: React.FC<GateInModalProps> = ({
     e.preventDefault();
     setError(null);
 
-    const name = securityName.trim();
-    if (!name) {
-      setError('Please enter the Security Guard Name / ID.');
-      return;
-    }
+    const name = securityName.trim() || defaultGuardName || 'Gate Security Guard';
 
     if (isNaN(numEnd) || numEnd < 0) {
       setError('Please enter a valid ending odometer reading (End KM).');

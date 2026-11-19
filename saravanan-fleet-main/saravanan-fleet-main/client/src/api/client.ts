@@ -110,7 +110,7 @@ export const api = {
   },
 
   async updateTrip(id: string, data: Partial<Trip>): Promise<Trip> {
-    const res = await fetch(`${API_BASE}/trips/${id}`, {
+    const res = await fetch(`${API_BASE}/trips/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -126,7 +126,7 @@ export const api = {
   },
 
   async deleteTrip(id: string): Promise<boolean> {
-    const res = await fetch(`${API_BASE}/trips/${id}`, {
+    const res = await fetch(`${API_BASE}/trips/${encodeURIComponent(id)}`, {
       method: 'DELETE',
       headers: getAuthHeaders(),
     });

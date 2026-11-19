@@ -179,11 +179,14 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
   router.put('/trips/:id', async (req: Request, res: Response) => {
     try {
-      const tripId = String(req.params.id);
+      const rawTripId = String(req.params.id);
+      const tripId = decodeURIComponent(rawTripId);
       const userRole = (req.headers['x-user-role'] as string) || (req.body.userRole as string);
       const driverName = (req.headers['x-driver-name'] as string) || (req.body.driverName as string);
 
-      const existingTrip = dataStore.getTrips().find(t => t.trip_id === tripId);
+      const existingTrip = dataStore.getTrips().find(
+        t => t.trip_id === tripId || t.trip_id === rawTripId || decodeURIComponent(t.trip_id) === tripId
+      );
       if (!existingTrip) {
         res.status(404).json({ error: 'Trip not found' });
         return;
@@ -207,7 +210,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
         }
       }
 
-      const updated = await dataStore.updateTrip(tripId, req.body);
+      const updated = await dataStore.updateTrip(existingTrip.trip_id, req.body);
       if (!updated) {
         res.status(404).json({ error: 'Trip not found' });
         return;
@@ -220,11 +223,14 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
   router.delete('/trips/:id', async (req: Request, res: Response) => {
     try {
-      const tripId = String(req.params.id);
+      const rawTripId = String(req.params.id);
+      const tripId = decodeURIComponent(rawTripId);
       const userRole = (req.headers['x-user-role'] as string) || (req.query.userRole as string);
       const driverName = (req.headers['x-driver-name'] as string) || (req.query.driverName as string);
 
-      const existingTrip = dataStore.getTrips().find(t => t.trip_id === tripId);
+      const existingTrip = dataStore.getTrips().find(
+        t => t.trip_id === tripId || t.trip_id === rawTripId || decodeURIComponent(t.trip_id) === tripId
+      );
       if (!existingTrip) {
         res.status(404).json({ error: 'Trip not found' });
         return;
@@ -248,7 +254,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
         }
       }
 
-      const success = await dataStore.deleteTrip(tripId);
+      const success = await dataStore.deleteTrip(existingTrip.trip_id);
       if (!success) {
         res.status(404).json({ error: 'Trip not found' });
         return;

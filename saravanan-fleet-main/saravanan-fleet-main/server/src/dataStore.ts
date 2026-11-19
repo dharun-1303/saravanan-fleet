@@ -714,7 +714,10 @@ export class DataStore {
   }
 
   public async updateTrip(tripId: string, updates: Partial<Trip>): Promise<Trip | null> {
-    const index = this.trips.findIndex(t => t.trip_id === tripId);
+    const decodedId = decodeURIComponent(tripId);
+    const index = this.trips.findIndex(
+      t => t.trip_id === tripId || t.trip_id === decodedId || decodeURIComponent(t.trip_id) === decodedId
+    );
     if (index === -1) return null;
     
     const existing = this.trips[index];

@@ -59,6 +59,12 @@ export const Trips: React.FC<TripsProps> = ({
     userRole === 'security_gate' ? 'pending_gate' : 'all'
   );
 
+  useEffect(() => {
+    if (userRole === 'security_gate') {
+      setActiveTab('pending_gate');
+    }
+  }, [userRole]);
+
   // Modals state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
@@ -573,12 +579,13 @@ export const Trips: React.FC<TripsProps> = ({
   const handleConfirmGateOut = async (data: { gate_out_by: string; gate_out_time: string }) => {
     if (!gateOutTrip) return;
     const currentTimestamp = data.gate_out_time || new Date().toISOString();
+    const guard = data.gate_out_by || currentUser?.name || 'Gate Security Guard';
     await onUpdateTrip(gateOutTrip.trip_id, {
       gate_status: 'DISPATCHED',
       status: 'IN_TRANSIT',
       trip_status: 'IN_TRANSIT',
       gate_out_time: currentTimestamp,
-      gate_out_by: data.gate_out_by,
+      gate_out_by: guard,
     });
     setGateOutTrip(null);
   };
@@ -589,6 +596,7 @@ export const Trips: React.FC<TripsProps> = ({
     const currentTimestamp = data.gate_in_time || new Date().toISOString();
     const startKm = gateInTrip.start_km;
     const distance = Math.max(0, data.end_km - startKm);
+    const guard = data.gate_in_by || currentUser?.name || 'Gate Security Guard';
     await onUpdateTrip(gateInTrip.trip_id, {
       gate_status: 'COMPLETED',
       status: 'COMPLETED',
@@ -596,7 +604,7 @@ export const Trips: React.FC<TripsProps> = ({
       end_km: data.end_km,
       distance,
       gate_in_time: currentTimestamp,
-      gate_in_by: data.gate_in_by,
+      gate_in_by: guard,
       ...(data.enroute !== undefined ? { enroute: data.enroute } : {}),
     });
     setGateInTrip(null);
@@ -897,10 +905,14 @@ export const Trips: React.FC<TripsProps> = ({
             <tbody className="divide-y divide-slate-100">
               {filteredTrips.map(trip => {
                 const vehicleObj = vehicleObjectMap.get(trip.vehicle_id);
-                const isPendingExit = !trip.gate_out_time || trip.gate_status === 'PENDING_EXIT';
+                const isGateCompleted = trip.gate_status === 'COMPLETED' || trip.status === 'COMPLETED';
                 const isDispatched = trip.gate_status === 'DISPATCHED';
                 const isPendingEntry = trip.gate_status === 'PENDING_ENTRY';
-                const isGateCompleted = trip.gate_status === 'COMPLETED';
+                const isPendingExit =
+                  !isGateCompleted &&
+                  !isDispatched &&
+                  !isPendingEntry &&
+                  (trip.gate_status === 'PENDING_EXIT' || !trip.gate_out_time);
 
                 return (
                   <tr key={trip.trip_id} className="hover:bg-slate-50/70 transition-colors">
@@ -1487,6 +1499,7 @@ export const Trips: React.FC<TripsProps> = ({
         isOpen={Boolean(gateOutTrip)}
         trip={gateOutTrip}
         vehicle={gateOutTrip ? vehicleObjectMap.get(gateOutTrip.vehicle_id) : undefined}
+        defaultGuardName={currentUser?.name || 'Gate Security Guard'}
         onClose={() => setGateOutTrip(null)}
         onConfirm={handleConfirmGateOut}
       />
@@ -1496,6 +1509,7 @@ export const Trips: React.FC<TripsProps> = ({
         isOpen={Boolean(gateInTrip)}
         trip={gateInTrip}
         vehicle={gateInTrip ? vehicleObjectMap.get(gateInTrip.vehicle_id) : undefined}
+        defaultGuardName={currentUser?.name || 'Gate Security Guard'}
         onClose={() => setGateInTrip(null)}
         onConfirm={handleConfirmGateIn}
       />
