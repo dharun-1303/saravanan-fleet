@@ -112,7 +112,7 @@ export class GoogleSheetsClient {
     const result = new Map<string, any[][]>();
     if (!this.sheets || !this.spreadsheetId || sheetNames.length === 0) return result;
     try {
-      const ranges = sheetNames.map(name => `'${name}'!A:N`);
+      const ranges = sheetNames.map(name => `'${name}'!A:Z`);
       const res = await this.sheets.spreadsheets.values.batchGet({
         spreadsheetId: this.spreadsheetId,
         ranges,
@@ -225,7 +225,9 @@ export class GoogleSheetsClient {
   }
 
   public async updateRow(sheetName: string, rowIndex: number, values: (string | number)[]): Promise<boolean> {
-    if (!this.sheets || !this.spreadsheetId) return false;
+    if (!this.sheets || !this.spreadsheetId) {
+      throw new Error('Google Sheets client or GOOGLE_SPREADSHEET_ID is not configured');
+    }
     try {
       const endCol = getColumnLetter(values.length);
       const range = `'${sheetName}'!A${rowIndex}:${endCol}${rowIndex}`;
@@ -243,7 +245,9 @@ export class GoogleSheetsClient {
   }
 
   public async appendRow(sheetName: string, values: (string | number)[]): Promise<{ success: boolean; rowIndex: number }> {
-    if (!this.sheets || !this.spreadsheetId) return { success: false, rowIndex: -1 };
+    if (!this.sheets || !this.spreadsheetId) {
+      throw new Error('Google Sheets client or GOOGLE_SPREADSHEET_ID is not configured');
+    }
     try {
       // First, read current sheet to check for totals row or existing rows
       const currentRows = await this.readSheetValues(sheetName);
@@ -253,9 +257,9 @@ export class GoogleSheetsClient {
       let totalsRowIndex = -1;
       for (let i = currentRows.length - 1; i >= 0; i--) {
         const row = currentRows[i];
-        const firstCol = (row[0] || '').toString().toUpperCase();
-        const secondCol = (row[1] || '').toString().toUpperCase();
-        if (firstCol.includes('TOTAL') || secondCol.includes('TOTAL')) {
+        const firstCol = (row[0] || '').toString().trim().toUpperCase();
+        const secondCol = (row[1] || '').toString().trim().toUpperCase();
+        if (firstCol === 'TOTAL' || firstCol.startsWith('TOTAL ') || (firstCol === '' && (secondCol === 'TOTAL' || secondCol.startsWith('TOTAL ')))) {
           totalsRowIndex = i + 1; // 1-based row index in spreadsheet
           break;
         }
@@ -266,7 +270,7 @@ export class GoogleSheetsClient {
         insertIndex = totalsRowIndex;
         // Batch update to insert dimension row
         const meta = await this.sheets.spreadsheets.get({ spreadsheetId: this.spreadsheetId });
-        const sheet = meta.data.sheets?.find(s => s.properties?.title === sheetName);
+        const sheet = meta.data.sheets?.find(s => s.properties?.title?.toLowerCase() === sheetName.toLowerCase());
         const sheetId = sheet?.properties?.sheetId || 0;
 
         await this.sheets.spreadsheets.batchUpdate({
@@ -314,7 +318,9 @@ export class GoogleSheetsClient {
   }
 
   public async deleteRow(sheetName: string, rowIndex: number): Promise<boolean> {
-    if (!this.sheets || !this.spreadsheetId) return false;
+    if (!this.sheets || !this.spreadsheetId) {
+      throw new Error('Google Sheets client or GOOGLE_SPREADSHEET_ID is not configured');
+    }
     if (rowIndex <= 0) return false;
     try {
       const meta = await this.sheets.spreadsheets.get({ spreadsheetId: this.spreadsheetId });

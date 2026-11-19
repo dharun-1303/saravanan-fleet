@@ -173,26 +173,11 @@ export function createFleetRouter(dataStore: DataStore): Router {
         gate_in_by: gate_in_by || undefined,
       });
 
-      const syncSuccess = (trip as any).sheets_synced !== false;
-      const syncError = (trip as any).sheets_sync_error;
-      const responsePayload = {
+      res.status(201).json({
         success: true,
         trip,
-        sheets_sync: {
-          synced: syncSuccess,
-          sheet_name: trip.sheet_name || null,
-          row_index: trip.row_index || null,
-          error: syncError || null,
-        },
-        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
         ...trip,
-      };
-
-      if (!syncSuccess) {
-        console.warn(`[POST /api/trips] Trip ${trip.trip_id} recorded locally, but Sheets append warning: ${syncError}`);
-      }
-
-      res.status(201).json(responsePayload);
+      });
     } catch (err: any) {
       console.error('[POST /api/trips] Error creating trip:', err.message, err);
       res.status(500).json({ success: false, error: err.message });
@@ -253,18 +238,9 @@ export function createFleetRouter(dataStore: DataStore): Router {
         return;
       }
 
-      const syncSuccess = (updated as any).sheets_synced !== false;
-      const syncError = (updated as any).sheets_sync_error;
       res.status(200).json({
         success: true,
         trip: updated,
-        sheets_sync: {
-          synced: syncSuccess,
-          sheet_name: updated.sheet_name || null,
-          row_index: updated.row_index || null,
-          error: syncError || null,
-        },
-        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
         ...updated,
       });
     } catch (err: any) {
@@ -315,18 +291,9 @@ export function createFleetRouter(dataStore: DataStore): Router {
         return;
       }
 
-      const syncSuccess = (updated as any).sheets_synced !== false;
-      const syncError = (updated as any).sheets_sync_error;
       res.status(200).json({
         success: true,
         trip: updated,
-        sheets_sync: {
-          synced: syncSuccess,
-          sheet_name: updated.sheet_name || null,
-          row_index: updated.row_index || null,
-          error: syncError || null,
-        },
-        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
         ...updated,
       });
     } catch (err: any) {
@@ -371,18 +338,9 @@ export function createFleetRouter(dataStore: DataStore): Router {
         return;
       }
 
-      const syncSuccess = (updated as any).sheets_synced !== false;
-      const syncError = (updated as any).sheets_sync_error;
       res.status(200).json({
         success: true,
         trip: updated,
-        sheets_sync: {
-          synced: syncSuccess,
-          sheet_name: updated.sheet_name || null,
-          row_index: updated.row_index || null,
-          error: syncError || null,
-        },
-        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
         ...updated,
       });
     } catch (err: any) {
@@ -432,18 +390,9 @@ export function createFleetRouter(dataStore: DataStore): Router {
         return;
       }
 
-      const syncSuccess = (updated as any).sheets_synced !== false;
-      const syncError = (updated as any).sheets_sync_error;
       res.status(200).json({
         success: true,
         trip: updated,
-        sheets_sync: {
-          synced: syncSuccess,
-          sheet_name: updated.sheet_name || null,
-          row_index: updated.row_index || null,
-          error: syncError || null,
-        },
-        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
         ...updated,
       });
     } catch (err: any) {

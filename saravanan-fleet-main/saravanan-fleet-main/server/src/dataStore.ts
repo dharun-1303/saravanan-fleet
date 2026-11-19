@@ -145,6 +145,12 @@ export class DataStore {
   private expenseRecords: ExpenseRecord[] = [];
   private settings: SettingRecord[] = [];
   private dismissedAlertIds: Set<string> = new Set();
+
+  // Write-lock: timestamp of last write (POST/PUT/DELETE). Background pull
+  // is skipped for WRITE_COOLDOWN_MS after any write to prevent stale Sheets
+  // data from overwriting a just-saved trip before Google propagates the row.
+  private lastWriteTimestamp = 0;
+  private readonly WRITE_COOLDOWN_MS = 10000; // 10 s cooldown after any write
   
   private syncStatus: SyncStatus = {
     last_synced_at: null,
@@ -320,6 +326,14 @@ export class DataStore {
 
     if (this.pollingTimer) clearInterval(this.pollingTimer);
     this.pollingTimer = setInterval(async () => {
+      // Skip background pull if a write happened recently — the new row may
+      // not have propagated to Sheets yet, and pulling now would overwrite the
+      // local cache with stale (pre-write) Sheets data.
+      const msSinceLastWrite = Date.now() - this.lastWriteTimestamp;
+      if (msSinceLastWrite < this.WRITE_COOLDOWN_MS) {
+        console.log(`[DataStore] Background sync skipped — write cooldown active (${Math.round(msSinceLastWrite / 1000)}s / ${this.WRITE_COOLDOWN_MS / 1000}s)`);
+        return;
+      }
       if (this.sheetsClient.isConfigured() && !this.isSyncing) {
         await this.syncWithGoogleSheets();
       }
@@ -457,8 +471,37 @@ export class DataStore {
         }
       }
 
-      // Keep trips in sync with Sheets - unconditionally update so deletions are reflected
-      this.trips = loadedTrips;
+      // Safe merge: keep any locally-cached trips that were written since the
+      // last confirmed sync (i.e. within the write cooldown window). These are
+      // trips that exist in memory but have not yet appeared in the Sheets read
+      // because Google's API propagation is still in-flight.
+      //
+      // Strategy:
+      //   1. Build a de-duplication key set from the Sheets rows.
+      //   2. Find locally-written trips that are NOT yet in the Sheets data.
+      //   3. Prepend them so they aren't lost.
+      const sheetsKeys = new Set(loadedTrips.map(t =>
+        `${t.vehicle_id}|${t.date}|${t.start_km}`
+      ));
+      const msSinceLastWrite = Date.now() - this.lastWriteTimestamp;
+      const withinCooldown = msSinceLastWrite < this.WRITE_COOLDOWN_MS;
+      const orphanedLocalTrips = withinCooldown
+        ? this.trips.filter(t =>
+            // Only preserve locally-created trips (sheets_synced may be true or
+            // in-flight), not stale trips that simply didn't appear in Sheets
+            // because they were deleted there.
+            !sheetsKeys.has(`${t.vehicle_id}|${t.date}|${t.start_km}`) &&
+            t.trip_id.startsWith('trip-') // our generated IDs
+          )
+        : [];
+
+      if (orphanedLocalTrips.length > 0) {
+        console.log(`[DataStore] Preserving ${orphanedLocalTrips.length} locally-written trip(s) not yet visible in Sheets (cooldown active)`);
+      }
+
+      // Replace cache with merged result (Sheets data is authoritative except
+      // for the orphaned local trips preserved above).
+      this.trips = [...orphanedLocalTrips, ...loadedTrips];
 
       // 5. Parse Fuel, Maintenance, Documents, Expenses from the batch data
       const fuelRows = batchData.get('Fuel') || [];
@@ -809,7 +852,16 @@ export class DataStore {
       gate_in_time: tripData.gate_in_time || undefined,
       gate_in_by: tripData.gate_in_by || undefined,
     };
-    this.trips.unshift(newTrip);
+
+    // Verify Google Sheets configuration
+    const isMock = config.isMockMode || process.env.NODE_ENV === 'test';
+    if (!isMock && !this.sheetsClient.isConfigured()) {
+      const errMsg = !config.spreadsheetId
+        ? 'GOOGLE_SPREADSHEET_ID is missing or empty in .env'
+        : 'Google Sheets Service Account credentials are missing or could not be loaded';
+      console.error(`[DataStore] Google Sheets configuration error: ${errMsg}`);
+      throw new Error(errMsg);
+    }
 
     if (this.sheetsClient.isConfigured()) {
       try {
@@ -818,24 +870,25 @@ export class DataStore {
         const headers = await this.sheetsClient.ensureColumnsExist(targetTab, REQUIRED_TRIP_COLUMNS);
         const rowValues = mapTripToRow(headers, newTrip);
 
-        console.log(`[GoogleSheets] Explicitly awaiting append for trip ${newTrip.trip_id} on tab "${targetTab}" (${rowValues.length} columns)...`);
+        console.log(`[GoogleSheets] Awaiting append for trip ${newTrip.trip_id} on tab "${targetTab}" (${rowValues.length} columns)...`);
         const res = await this.sheetsClient.appendRow(targetTab, rowValues);
         newTrip.sheet_name = targetTab;
         newTrip.row_index = res.rowIndex;
         newTrip.sheets_synced = true;
+        this.lastWriteTimestamp = Date.now();
         this.syncStatus.last_synced_at = new Date().toISOString();
         console.log(`[GoogleSheets] Trip ${newTrip.trip_id} appended successfully to "${targetTab}" at row ${res.rowIndex}`);
       } catch (err: any) {
-        newTrip.sheets_synced = false;
-        newTrip.sheets_sync_error = err.message || 'Unknown Google Sheets API error';
         console.error(`[GoogleSheets] Explicit append error for trip ${newTrip.trip_id}:`, err.message, err);
+        throw new Error(`Google Sheets append failed: ${err.message || 'Unknown Google API error'}`);
       }
     } else {
-      newTrip.sheets_synced = false;
-      newTrip.sheets_sync_error = 'Google Sheets is offline or mock mode';
-      console.warn(`[GoogleSheets] Offline/Mock Mode: Trip ${newTrip.trip_id} stored in local cache.`);
+      newTrip.sheets_synced = true;
+      this.lastWriteTimestamp = Date.now();
     }
 
+    // On success: update in-memory cache immediately
+    this.trips.unshift(newTrip);
     return newTrip;
   }
 
@@ -896,7 +949,15 @@ export class DataStore {
     }
     merged.trip_status = merged.status;
 
-    this.trips[index] = merged;
+    // Verify Google Sheets configuration
+    const isMock = config.isMockMode || process.env.NODE_ENV === 'test';
+    if (!isMock && !this.sheetsClient.isConfigured()) {
+      const errMsg = !config.spreadsheetId
+        ? 'GOOGLE_SPREADSHEET_ID is missing or empty in .env'
+        : 'Google Sheets Service Account credentials are missing or could not be loaded';
+      console.error(`[DataStore] Google Sheets configuration error: ${errMsg}`);
+      throw new Error(errMsg);
+    }
 
     if (this.sheetsClient.isConfigured()) {
       try {
@@ -905,13 +966,38 @@ export class DataStore {
         const headers = await this.sheetsClient.ensureColumnsExist(targetTab, REQUIRED_TRIP_COLUMNS);
 
         let targetRowIndex = merged.row_index;
-        if (!targetRowIndex || targetRowIndex <= 1) {
-          const rows = await this.sheetsClient.readSheetValues(targetTab);
+        const rows = await this.sheetsClient.readSheetValues(targetTab);
+
+        // Find column indices in the sheet
+        const idColIdx = headers.findIndex(h => /^(TRIP ID|TRIP_ID|ID)$/i.test((h || '').trim()));
+        const dateColIdx = headers.findIndex(h => /^(DATE)$/i.test((h || '').trim()));
+        const startKmColIdx = headers.findIndex(h => /^(START KM|START_KM|START ODOMETER)$/i.test((h || '').trim()));
+
+        // Check if cached targetRowIndex matches
+        let isValidCachedRow = false;
+        if (targetRowIndex && targetRowIndex > 1 && rows[targetRowIndex - 1]) {
+          const r = rows[targetRowIndex - 1];
+          if (idColIdx !== -1 && (r[idColIdx] === existing.trip_id || r[idColIdx] === tripId)) {
+            isValidCachedRow = true;
+          } else {
+            const rDate = (dateColIdx !== -1 ? r[dateColIdx] : r[0] || '').toString();
+            const rStart = parseFloat(startKmColIdx !== -1 ? r[startKmColIdx] : r[3]) || 0;
+            if (rDate === existing.date && Math.abs(rStart - existing.start_km) < 0.1) {
+              isValidCachedRow = true;
+            }
+          }
+        }
+
+        if (!isValidCachedRow) {
+          // Locate exact row in Google Sheets
           const foundIdx = rows.findIndex((r, idx) => {
             if (idx === 0) return false;
-            const rDate = (r[0] || '').toString();
-            const rStart = parseFloat(r[3]) || 0;
-            return rDate === existing.date && rStart === existing.start_km;
+            if (idColIdx !== -1 && (r[idColIdx] === existing.trip_id || r[idColIdx] === tripId)) {
+              return true;
+            }
+            const rDate = (dateColIdx !== -1 ? r[dateColIdx] : r[0] || '').toString();
+            const rStart = parseFloat(startKmColIdx !== -1 ? r[startKmColIdx] : r[3]) || 0;
+            return rDate === existing.date && Math.abs(rStart - existing.start_km) < 0.1;
           });
           if (foundIdx > 0) {
             targetRowIndex = foundIdx + 1;
@@ -921,10 +1007,12 @@ export class DataStore {
         }
 
         const rowValues = mapTripToRow(headers, merged);
+
         if (targetRowIndex && targetRowIndex > 1) {
-          console.log(`[GoogleSheets] Explicitly updating trip ${merged.trip_id} in tab "${targetTab}" row ${targetRowIndex}...`);
+          console.log(`[GoogleSheets] Updating trip ${merged.trip_id} in tab "${targetTab}" row ${targetRowIndex}...`);
           await this.sheetsClient.updateRow(targetTab, targetRowIndex, rowValues);
           (merged as any).sheets_synced = true;
+          this.lastWriteTimestamp = Date.now();
           this.syncStatus.last_synced_at = new Date().toISOString();
           console.log(`[GoogleSheets] Trip ${merged.trip_id} updated successfully in "${targetTab}" row ${targetRowIndex}`);
         } else {
@@ -933,18 +1021,20 @@ export class DataStore {
           merged.row_index = res.rowIndex;
           merged.sheet_name = targetTab;
           (merged as any).sheets_synced = true;
+          this.lastWriteTimestamp = Date.now();
           this.syncStatus.last_synced_at = new Date().toISOString();
         }
       } catch (err: any) {
-        (merged as any).sheets_synced = false;
-        (merged as any).sheets_sync_error = err.message || 'Unknown Google Sheets API error';
         console.error(`[GoogleSheets] Explicit update error for trip ${merged.trip_id}:`, err.message, err);
+        throw new Error(`Google Sheets update failed: ${err.message || 'Unknown Google API error'}`);
       }
     } else {
-      (merged as any).sheets_synced = false;
-      (merged as any).sheets_sync_error = 'Google Sheets is offline or mock mode';
+      (merged as any).sheets_synced = true;
+      this.lastWriteTimestamp = Date.now();
     }
 
+    // On success: update in-memory cache
+    this.trips[index] = merged;
     return merged;
   }
 
@@ -1199,7 +1289,7 @@ export class DataStore {
       }
     }
     this.vehicles.splice(index, 1);
-    await this.syncWithGoogleSheets();
+    this.lastWriteTimestamp = Date.now();
     return true;
   }
 
@@ -1245,7 +1335,9 @@ export class DataStore {
       }
     }
     this.trips = this.trips.filter(t => t.trip_id !== tripId);
-    await this.syncWithGoogleSheets();
+    // Stamp write-lock so the next background pull doesn't bring the deleted
+    // row back from Sheets before propagation completes.
+    this.lastWriteTimestamp = Date.now();
     return true;
   }
 
@@ -1271,7 +1363,7 @@ export class DataStore {
       }
     }
     this.fuelRecords = this.fuelRecords.filter(f => f.fuel_id !== fuelId);
-    await this.syncWithGoogleSheets();
+    this.lastWriteTimestamp = Date.now();
     return true;
   }
 
@@ -1297,7 +1389,7 @@ export class DataStore {
       }
     }
     this.maintenanceRecords = this.maintenanceRecords.filter(m => m.maintenance_id !== id);
-    await this.syncWithGoogleSheets();
+    this.lastWriteTimestamp = Date.now();
     return true;
   }
 
@@ -1323,7 +1415,7 @@ export class DataStore {
       }
     }
     this.documentRecords = this.documentRecords.filter(d => d.document_id !== id);
-    await this.syncWithGoogleSheets();
+    this.lastWriteTimestamp = Date.now();
     return true;
   }
 
@@ -1349,7 +1441,7 @@ export class DataStore {
       }
     }
     this.expenseRecords = this.expenseRecords.filter(e => e.expense_id !== id);
-    await this.syncWithGoogleSheets();
+    this.lastWriteTimestamp = Date.now();
     return true;
   }
 
