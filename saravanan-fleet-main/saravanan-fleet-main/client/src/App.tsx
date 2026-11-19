@@ -449,8 +449,21 @@ export const App: React.FC = () => {
   };
 
   const handleAddTrip = async (data: Partial<Trip>) => {
-    await api.createTrip(data);
-    await fetchAllData();
+    try {
+      const newTrip = await api.createTrip(data);
+      if (newTrip) {
+        setTrips(prev => [newTrip, ...prev.filter(t => t.trip_id !== newTrip.trip_id)]);
+      }
+      const refreshedTrips = await api.getTrips();
+      if (refreshedTrips && Array.isArray(refreshedTrips)) {
+        setTrips(refreshedTrips);
+      }
+      await fetchAllData();
+      showNotification('Trip recorded successfully and synced with Google Sheets.', 'success');
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to record trip.', 'error');
+      throw err;
+    }
   };
 
   const handleUpdateTrip = async (id: string, data: Partial<Trip>) => {
@@ -490,6 +503,10 @@ export const App: React.FC = () => {
         setTrips(prev => prev.map(t => (t.trip_id === id ? { ...t, ...data } : t)));
       }
 
+      const refreshedTrips = await api.getTrips();
+      if (refreshedTrips && Array.isArray(refreshedTrips)) {
+        setTrips(refreshedTrips);
+      }
       await fetchAllData();
       if (data.gate_status === 'DISPATCHED') {
         showNotification('Gate OUT confirmed: Vehicle departure authorized and marked In Transit.', 'success');

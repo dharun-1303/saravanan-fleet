@@ -123,21 +123,21 @@ export const api = {
       trip_status: 'IN_TRANSIT' as const,
     };
 
-    try {
-      const res = await fetch(`${API_BASE}/trips/gate-out`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        return json.trip ? json.trip : json;
-      }
-    } catch (e) {
-      console.warn('POST /trips/gate-out failed, attempting PUT fallback:', e);
+    const res = await fetch(`${API_BASE}/trips/gate-out`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json.trip ? json.trip : json;
+    }
+    if (res.status !== 404 && res.status !== 405) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to approve Gate Out (${res.status})`);
     }
 
     return this.updateTrip(id, payload);
@@ -154,21 +154,21 @@ export const api = {
       gate_status: 'PENDING_ENTRY' as const,
     };
 
-    try {
-      const res = await fetch(`${API_BASE}/trips/close-active`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        return json.trip ? json.trip : json;
-      }
-    } catch (e) {
-      console.warn('POST /trips/close-active failed, attempting fallback to PUT /trips/:id:', e);
+    const res = await fetch(`${API_BASE}/trips/close-active`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json.trip ? json.trip : json;
+    }
+    if (res.status !== 404 && res.status !== 405) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to close active trip (${res.status})`);
     }
 
     return this.updateTrip(id, payload);
@@ -188,21 +188,21 @@ export const api = {
       trip_status: 'COMPLETED' as const,
     };
 
-    try {
-      const res = await fetch(`${API_BASE}/trips/gate-in`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        return json.trip ? json.trip : json;
-      }
-    } catch (e) {
-      console.warn('POST /trips/gate-in failed, attempting PUT fallback:', e);
+    const res = await fetch(`${API_BASE}/trips/gate-in`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json.trip ? json.trip : json;
+    }
+    if (res.status !== 404 && res.status !== 405) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Failed to approve Gate In (${res.status})`);
     }
 
     return this.updateTrip(id, payload);
