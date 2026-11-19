@@ -3,9 +3,15 @@ import { Vehicle, Trip, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRe
 // Support both VITE_API_URL and VITE_API_BASE_URL, with automatic slash/api cleanup
 function resolveApiBase(): string {
   const envUrl = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || '').trim();
-  if (!envUrl) return '/api';
-  const clean = envUrl.replace(/\/+$/, '');
-  return clean.endsWith('/api') ? clean : `${clean}/api`;
+  if (envUrl) {
+    const clean = envUrl.replace(/\/+$/, '');
+    return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+  // In production (Vercel), default cleanly to the live Render backend
+  if (import.meta.env.PROD) {
+    return 'https://saravanan-fleet.onrender.com/api';
+  }
+  return '/api';
 }
 
 export const API_BASE = resolveApiBase();
@@ -103,12 +109,24 @@ export const api = {
       headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
       body: JSON.stringify(data),
     });
+    const contentType = res.headers.get('content-type') || '';
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to create trip');
+      if (contentType.includes('application/json')) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Failed to create trip (${res.status})`);
+      } else {
+        throw new Error(`Failed to create trip (${res.status}): Server returned non-JSON response`);
+      }
+    }
+    if (!contentType.includes('application/json')) {
+      throw new Error('Backend returned invalid response (HTML/non-JSON). Check API URL configuration.');
     }
     const json = await res.json();
-    return json.trip ? json.trip : json;
+    const trip = json.trip ? json.trip : json;
+    if (!trip || !trip.trip_id) {
+      throw new Error('Backend failed to confirm trip was saved to Google Sheets');
+    }
+    return trip;
   },
 
   async gateOutTrip(id: string, data: { gate_out_by?: string; security_guard_out?: string; gate_out_time: string }): Promise<Trip> {

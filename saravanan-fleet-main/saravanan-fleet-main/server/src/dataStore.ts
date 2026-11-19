@@ -22,6 +22,7 @@ export const REQUIRED_TRIP_COLUMNS = [
   'GATE IN TIME',
   'GATE IN BY',
   'ENROUTE',
+  'TRIP ID',
 ];
 
 export function mapTripToRow(headers: string[], trip: Trip): (string | number)[] {
@@ -107,10 +108,12 @@ export function parseTripFromRow(
   const gateInBy = valByHeader(/^(GATE IN BY|IN BY|SECURITY GUARD IN)$/) || undefined;
   const enroute = valByHeader(/(ENROUTE|VIA|STOPS)/) || undefined;
   const idFromSheet = valByHeader(/^(TRIP ID|ID)$/);
+  const rawVeh = valByHeader(/^(VEHICLE|VEHICLE ID|VEHICLE_ID|REGISTRATION|REG NO)$/);
+  const resolvedVehicleId = rawVeh || vehicleId;
 
   return {
     trip_id: idFromSheet || `trip-s-${candidateTab}-${rowIndex}`,
-    vehicle_id: vehicleId,
+    vehicle_id: resolvedVehicleId,
     date,
     from,
     to,
@@ -405,23 +408,8 @@ export class DataStore {
         this.initialTabsEnsured = true;
       }
 
-      // Find trip tabs matching existing vehicles
-      const vehicleTripTabMap = new Map<string, string>(); // vehicle_id -> tabName
-      for (const v of this.vehicles) {
-        const candidateTab = allTabs.find(t =>
-          (v.sheet_tab_name && t.toLowerCase() === v.sheet_tab_name.toLowerCase()) ||
-          t.toLowerCase().includes(v.registration_number.toLowerCase()) ||
-          t.toLowerCase().includes(v.vehicle_name.toLowerCase())
-        );
-        if (candidateTab) {
-          vehicleTripTabMap.set(v.vehicle_id, candidateTab);
-        }
-      }
-
-      // Only fetch tabs that actually exist in the spreadsheet
-      const rawTabsToFetch = Array.from(new Set([...coreTabs, ...Array.from(vehicleTripTabMap.values())]));
-      const tabsToFetch = rawTabsToFetch.filter(name => allTabs.some(t => t.toLowerCase() === name.toLowerCase()));
-      const batchData = await this.sheetsClient.batchGetSheetValues(tabsToFetch);
+      // Fetch all spreadsheet tabs in a single batch call to ensure every tab is available
+      const batchData = await this.sheetsClient.batchGetSheetValues(allTabs);
 
       // 3. Parse Vehicles tab
       const vehicleTabKey = allTabs.find(t => t.toLowerCase() === 'vehicles') || 'Vehicles';
@@ -448,15 +436,15 @@ export class DataStore {
         }
       }
 
-      // 4. Parse Trips from vehicle-specific tabs
+      // 4. Parse Trips from vehicle-specific tabs and general Trips tab
       const loadedTrips: Trip[] = [];
+      const processedTabs = new Set<string>();
+
+      // A. Parse from each vehicle's matched tab
       for (const v of this.vehicles) {
-        const candidateTab = vehicleTripTabMap.get(v.vehicle_id) || allTabs.find(t =>
-          (v.sheet_tab_name && t.toLowerCase() === v.sheet_tab_name.toLowerCase()) ||
-          t.toLowerCase().includes(v.registration_number.toLowerCase()) ||
-          t.toLowerCase().includes(v.vehicle_name.toLowerCase())
-        );
+        const candidateTab = this.findTabForVehicle(v, allTabs);
         if (!candidateTab) continue;
+        processedTabs.add(candidateTab.toLowerCase());
 
         const tabRows = batchData.get(candidateTab) || [];
         if (tabRows.length > 1) {
@@ -471,36 +459,79 @@ export class DataStore {
         }
       }
 
-      // Safe merge: keep any locally-cached trips that were written since the
-      // last confirmed sync (i.e. within the write cooldown window). These are
-      // trips that exist in memory but have not yet appeared in the Sheets read
-      // because Google's API propagation is still in-flight.
-      //
-      // Strategy:
-      //   1. Build a de-duplication key set from the Sheets rows.
-      //   2. Find locally-written trips that are NOT yet in the Sheets data.
-      //   3. Prepend them so they aren't lost.
-      const sheetsKeys = new Set(loadedTrips.map(t =>
-        `${t.vehicle_id}|${t.date}|${t.start_km}`
-      ));
+      // B. Parse from general "Trips" tab if it exists
+      const generalTripsTab = allTabs.find(t => t.trim().toLowerCase() === 'trips');
+      if (generalTripsTab && !processedTabs.has(generalTripsTab.toLowerCase())) {
+        processedTabs.add(generalTripsTab.toLowerCase());
+        const tabRows = batchData.get(generalTripsTab) || [];
+        if (tabRows.length > 1) {
+          const headers = (tabRows[0] || []).map((h: any) => (h || '').toString().trim());
+          const vColIdx = headers.findIndex(h => /^(VEHICLE|VEHICLE ID|VEHICLE_ID|REGISTRATION|REG NO)$/i.test(h.trim()));
+          for (let i = 1; i < tabRows.length; i++) {
+            const r = tabRows[i];
+            let vId = this.vehicles[0]?.vehicle_id || 'veh-default';
+            if (vColIdx !== -1 && r[vColIdx]) {
+              const matchV = this.getVehicleById(String(r[vColIdx]));
+              if (matchV) vId = matchV.vehicle_id;
+            }
+            const parsedTrip = parseTripFromRow(headers, r, generalTripsTab, i + 1, vId);
+            if (parsedTrip) {
+              loadedTrips.push(parsedTrip);
+            }
+          }
+        }
+      }
+
+      // C. Also check any other non-core tabs in the spreadsheet that look like vehicle trip logs
+      for (const tab of allTabs) {
+        const lower = tab.toLowerCase();
+        if (coreTabs.some(ct => ct.toLowerCase() === lower) || processedTabs.has(lower) || lower === 'settings') {
+          continue;
+        }
+        processedTabs.add(lower);
+        const tabRows = batchData.get(tab) || [];
+        if (tabRows.length > 1) {
+          const headers = (tabRows[0] || []).map((h: any) => (h || '').toString().trim());
+          const hasDate = headers.some(h => /^DATE$/i.test(h));
+          const hasStart = headers.some(h => /^(START KM|START_KM|START ODOMETER)$/i.test(h));
+          if (hasDate && hasStart) {
+            const matchedV = this.vehicles.find(v => {
+              const cleanReg = (v.registration_number || '').toLowerCase().replace(/[\s\-_]/g, '');
+              const cleanName = (v.vehicle_name || '').toLowerCase().replace(/[\s\-_]/g, '');
+              const cleanT = tab.toLowerCase().replace(/[\s\-_]/g, '');
+              return (cleanReg && cleanT.includes(cleanReg)) || (cleanName && cleanT.includes(cleanName));
+            });
+            const vId = matchedV ? matchedV.vehicle_id : (this.vehicles[0]?.vehicle_id || 'veh-default');
+            for (let i = 1; i < tabRows.length; i++) {
+              const r = tabRows[i];
+              const parsedTrip = parseTripFromRow(headers, r, tab, i + 1, vId);
+              if (parsedTrip) {
+                loadedTrips.push(parsedTrip);
+              }
+            }
+          }
+        }
+      }
+
+      // Safe merge: keep any locally-cached trips that were confirmed saved
+      // but have not yet appeared in the Sheets read (e.g. Google's API propagation delay).
+      const sheetsTripIds = new Set(loadedTrips.map(t => t.trip_id));
+      const sheetsDateOdoKeys = new Set(loadedTrips.map(t => `${t.vehicle_id}|${t.date}|${t.start_km}`));
+
       const msSinceLastWrite = Date.now() - this.lastWriteTimestamp;
       const withinCooldown = msSinceLastWrite < this.WRITE_COOLDOWN_MS;
       const orphanedLocalTrips = withinCooldown
         ? this.trips.filter(t =>
-            // Only preserve locally-created trips (sheets_synced may be true or
-            // in-flight), not stale trips that simply didn't appear in Sheets
-            // because they were deleted there.
-            !sheetsKeys.has(`${t.vehicle_id}|${t.date}|${t.start_km}`) &&
-            t.trip_id.startsWith('trip-') // our generated IDs
+            !sheetsTripIds.has(t.trip_id) &&
+            !sheetsDateOdoKeys.has(`${t.vehicle_id}|${t.date}|${t.start_km}`)
           )
         : [];
 
       if (orphanedLocalTrips.length > 0) {
-        console.log(`[DataStore] Preserving ${orphanedLocalTrips.length} locally-written trip(s) not yet visible in Sheets (cooldown active)`);
+        console.log(`[DataStore] Preserving ${orphanedLocalTrips.length} locally confirmed trip(s) not yet visible in Sheets sync (cooldown active)`);
       }
 
-      // Replace cache with merged result (Sheets data is authoritative except
-      // for the orphaned local trips preserved above).
+      // Replace cache with merged result
       this.trips = [...orphanedLocalTrips, ...loadedTrips];
 
       // 5. Parse Fuel, Maintenance, Documents, Expenses from the batch data
@@ -798,36 +829,57 @@ export class DataStore {
     return updated;
   }
 
+  public findTabForVehicle(v: Vehicle, allTabs: string[]): string | undefined {
+    if (!v) return undefined;
+    if (v.sheet_tab_name) {
+      const exact = allTabs.find(t => t === v.sheet_tab_name);
+      if (exact) return exact;
+      const ci = allTabs.find(t => t.trim().toLowerCase() === v.sheet_tab_name.trim().toLowerCase());
+      if (ci) return ci;
+    }
+    const cleanReg = (v.registration_number || '').toLowerCase().replace(/[\s\-_]/g, '');
+    const cleanName = (v.vehicle_name || '').toLowerCase().replace(/[\s\-_]/g, '');
+
+    if (cleanReg) {
+      const matchReg = allTabs.find(t => t.toLowerCase().replace(/[\s\-_]/g, '').includes(cleanReg));
+      if (matchReg) return matchReg;
+    }
+    if (cleanName) {
+      const matchName = allTabs.find(t => t.toLowerCase().replace(/[\s\-_]/g, '').includes(cleanName));
+      if (matchName) return matchName;
+    }
+
+    return undefined;
+  }
+
   public async resolveTargetTripTab(vehicleId: string): Promise<string> {
     const v = this.getVehicleById(vehicleId);
-    let targetTab = v?.sheet_tab_name || '';
+    if (!v) {
+      if (this.sheetsClient.isConfigured()) {
+        try {
+          const allTabs = await this.sheetsClient.getSheetsMetadata();
+          const defaultTrips = allTabs.find(t => t.trim().toLowerCase() === 'trips');
+          if (defaultTrips) return defaultTrips;
+        } catch {}
+      }
+      return 'Trips';
+    }
 
     if (this.sheetsClient.isConfigured()) {
       try {
         const allTabs = await this.sheetsClient.getSheetsMetadata();
-        if (targetTab && allTabs.includes(targetTab)) {
-          return targetTab;
-        }
-        if (targetTab) {
-          const matched = allTabs.find(t => t.trim().toLowerCase() === targetTab.trim().toLowerCase());
-          if (matched) return matched;
-        }
-        if (v) {
-          const cleanReg = (v.registration_number || '').toLowerCase().replace(/[\s\-_]/g, '');
-          const cleanName = (v.vehicle_name || '').toLowerCase().replace(/[\s\-_]/g, '');
-          const matched = allTabs.find(t => {
-            const cleanT = t.toLowerCase().replace(/[\s\-_]/g, '');
-            return (cleanReg && cleanT.includes(cleanReg)) || (cleanName && cleanT.includes(cleanName));
-          });
-          if (matched) return matched;
-        }
-        const defaultTrips = allTabs.find(t => t.toLowerCase() === 'trips');
+        const found = this.findTabForVehicle(v, allTabs);
+        if (found) return found;
+
+        // Check if general Trips tab exists
+        const defaultTrips = allTabs.find(t => t.trim().toLowerCase() === 'trips');
         if (defaultTrips) return defaultTrips;
       } catch (err: any) {
         console.warn('[DataStore] resolveTargetTripTab metadata check error:', err.message);
       }
     }
-    return targetTab || 'Trips';
+
+    return v.sheet_tab_name || `${v.vehicle_name} ${v.registration_number}`.trim() || 'Trips';
   }
 
   public async addTrip(tripData: Omit<Trip, 'trip_id' | 'distance' | 'status'> & Partial<Pick<Trip, 'status' | 'trip_status'>> & { sheets_synced?: boolean; sheets_sync_error?: string }): Promise<Trip> {
@@ -837,9 +889,14 @@ export class DataStore {
     const status = tripData.status || tripData.trip_status || (endKm !== null && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED');
     const gate_status: GateStatus = tripData.gate_status || (status === 'COMPLETED' ? 'COMPLETED' : 'PENDING_EXIT');
 
+    // Canonical vehicle resolution
+    const v = this.getVehicleById(tripData.vehicle_id);
+    const canonicalVehicleId = v ? v.vehicle_id : tripData.vehicle_id;
+
     const newTrip: Trip = {
       ...tripData,
       trip_id: `trip-${Date.now().toString().slice(-6)}`,
+      vehicle_id: canonicalVehicleId,
       start_km: startKm,
       end_km: endKm,
       distance,
@@ -853,41 +910,50 @@ export class DataStore {
       gate_in_by: tripData.gate_in_by || undefined,
     };
 
-    // Verify Google Sheets configuration
-    const isMock = config.isMockMode || process.env.NODE_ENV === 'test';
-    if (!isMock && !this.sheetsClient.isConfigured()) {
-      const errMsg = !config.spreadsheetId
-        ? 'GOOGLE_SPREADSHEET_ID is missing or empty in .env'
-        : 'Google Sheets Service Account credentials are missing or could not be loaded';
-      console.error(`[DataStore] Google Sheets configuration error: ${errMsg}`);
-      throw new Error(errMsg);
-    }
-
     if (this.sheetsClient.isConfigured()) {
       try {
         const targetTab = await this.resolveTargetTripTab(newTrip.vehicle_id);
+        if (!targetTab) {
+          throw new Error(`Could not determine target Google Sheet tab for vehicle "${newTrip.vehicle_id}"`);
+        }
         await this.sheetsClient.ensureTabExists(targetTab, REQUIRED_TRIP_COLUMNS);
         const headers = await this.sheetsClient.ensureColumnsExist(targetTab, REQUIRED_TRIP_COLUMNS);
         const rowValues = mapTripToRow(headers, newTrip);
 
-        console.log(`[GoogleSheets] Awaiting append for trip ${newTrip.trip_id} on tab "${targetTab}" (${rowValues.length} columns)...`);
+        console.log(`======================================================`);
+        console.log(`[POST /api/trips] Recording Trip ID: ${newTrip.trip_id}`);
+        console.log(`[POST /api/trips] Target Google Sheet Tab: "${targetTab}"`);
+        console.log(`[POST /api/trips] Row Values (${rowValues.length} columns):`, JSON.stringify(rowValues));
+
         const res = await this.sheetsClient.appendRow(targetTab, rowValues);
+
+        console.log(`[POST /api/trips] Google API Response:`, JSON.stringify(res.apiResponse || res));
+        console.log(`[POST /api/trips] Appended successfully at row: ${res.rowIndex}`);
+        console.log(`======================================================`);
+
         newTrip.sheet_name = targetTab;
         newTrip.row_index = res.rowIndex;
         newTrip.sheets_synced = true;
         this.lastWriteTimestamp = Date.now();
         this.syncStatus.last_synced_at = new Date().toISOString();
-        console.log(`[GoogleSheets] Trip ${newTrip.trip_id} appended successfully to "${targetTab}" at row ${res.rowIndex}`);
       } catch (err: any) {
-        console.error(`[GoogleSheets] Explicit append error for trip ${newTrip.trip_id}:`, err.message, err);
-        throw new Error(`Google Sheets append failed: ${err.message || 'Unknown Google API error'}`);
+        console.error(`[POST /api/trips] Google Sheets Append Failed for trip ${newTrip.trip_id}:`, err.message, err);
+        throw new Error(`Google Sheets append failed on tab "${newTrip.sheet_name || 'Trips'}": ${err.message}`);
       }
     } else {
-      newTrip.sheets_synced = true;
-      this.lastWriteTimestamp = Date.now();
+      if (process.env.NODE_ENV === 'test') {
+        newTrip.sheets_synced = true;
+        this.lastWriteTimestamp = Date.now();
+      } else {
+        const errMsg = !config.spreadsheetId
+          ? 'GOOGLE_SPREADSHEET_ID is missing or not configured in environment variables'
+          : 'Google Sheets Service Account credentials are missing or could not be loaded';
+        console.error(`[POST /api/trips] Cannot record trip: ${errMsg}`);
+        throw new Error(errMsg);
+      }
     }
 
-    // On success: update in-memory cache immediately
+    // On confirmed success: update in-memory cache immediately
     this.trips.unshift(newTrip);
     return newTrip;
   }

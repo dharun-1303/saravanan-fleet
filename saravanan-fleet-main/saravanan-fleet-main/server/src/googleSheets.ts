@@ -244,7 +244,7 @@ export class GoogleSheetsClient {
     }
   }
 
-  public async appendRow(sheetName: string, values: (string | number)[]): Promise<{ success: boolean; rowIndex: number }> {
+  public async appendRow(sheetName: string, values: (string | number)[]): Promise<{ success: boolean; rowIndex: number; apiResponse?: any }> {
     if (!this.sheets || !this.spreadsheetId) {
       throw new Error('Google Sheets client or GOOGLE_SPREADSHEET_ID is not configured');
     }
@@ -310,7 +310,7 @@ export class GoogleSheetsClient {
       const updatedRange = res.data.updates?.updatedRange || '';
       const match = updatedRange.match(/!A(\d+):/);
       const parsedRowIndex = match ? parseInt(match[1], 10) : insertIndex;
-      return { success: true, rowIndex: parsedRowIndex };
+      return { success: true, rowIndex: parsedRowIndex, apiResponse: res.data };
     } catch (err: any) {
       console.error(`[GoogleSheetsClient] appendRow error for ${sheetName}:`, err.message, err);
       throw err;

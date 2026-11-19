@@ -153,7 +153,7 @@ export function createFleetRouter(dataStore: DataStore): Router {
         return;
       }
 
-      console.log(`[POST /api/trips] Creating trip for vehicle "${vehicle_id}" on ${date}...`);
+      console.log(`[POST /api/trips] Incoming request for vehicle "${vehicle_id}" on ${date}:`, JSON.stringify(req.body));
       const trip = await dataStore.addTrip({
         vehicle_id,
         date,
@@ -173,13 +173,14 @@ export function createFleetRouter(dataStore: DataStore): Router {
         gate_in_by: gate_in_by || undefined,
       });
 
+      console.log(`[POST /api/trips] Trip successfully created and confirmed saved in Google Sheets: ${trip.trip_id}`);
       res.status(201).json({
         success: true,
         trip,
         ...trip,
       });
     } catch (err: any) {
-      console.error('[POST /api/trips] Error creating trip:', err.message, err);
+      console.error('[POST /api/trips] Error saving trip to Google Sheets:', err.message, err);
       res.status(500).json({ success: false, error: err.message });
     }
   });
