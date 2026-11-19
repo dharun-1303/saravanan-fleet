@@ -143,16 +143,17 @@ export function createFleetRouter(dataStore: DataStore): Router {
       } = req.body;
 
       if (!vehicle_id || !date || start_km === undefined) {
-        res.status(400).json({ error: 'vehicle_id, date, and start_km are required' });
+        res.status(400).json({ success: false, error: 'vehicle_id, date, and start_km are required' });
         return;
       }
       const numStart = Number(start_km);
       const numEnd = end_km !== undefined && end_km !== null && end_km !== '' ? Number(end_km) : null;
       if (numEnd !== null && numEnd < numStart) {
-        res.status(400).json({ error: 'End KM cannot be less than Start KM' });
+        res.status(400).json({ success: false, error: 'End KM cannot be less than Start KM' });
         return;
       }
 
+      console.log(`[POST /api/trips] Creating trip for vehicle "${vehicle_id}" on ${date}...`);
       const trip = await dataStore.addTrip({
         vehicle_id,
         date,
@@ -171,9 +172,30 @@ export function createFleetRouter(dataStore: DataStore): Router {
         gate_in_time: gate_in_time || undefined,
         gate_in_by: gate_in_by || undefined,
       });
-      res.status(201).json(trip);
+
+      const syncSuccess = (trip as any).sheets_synced !== false;
+      const syncError = (trip as any).sheets_sync_error;
+      const responsePayload = {
+        success: true,
+        trip,
+        sheets_sync: {
+          synced: syncSuccess,
+          sheet_name: trip.sheet_name || null,
+          row_index: trip.row_index || null,
+          error: syncError || null,
+        },
+        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
+        ...trip,
+      };
+
+      if (!syncSuccess) {
+        console.warn(`[POST /api/trips] Trip ${trip.trip_id} recorded locally, but Sheets append warning: ${syncError}`);
+      }
+
+      res.status(201).json(responsePayload);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error('[POST /api/trips] Error creating trip:', err.message, err);
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -230,8 +252,23 @@ export function createFleetRouter(dataStore: DataStore): Router {
         res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
-      res.status(200).json({ success: true, trip: updated, ...updated });
+
+      const syncSuccess = (updated as any).sheets_synced !== false;
+      const syncError = (updated as any).sheets_sync_error;
+      res.status(200).json({
+        success: true,
+        trip: updated,
+        sheets_sync: {
+          synced: syncSuccess,
+          sheet_name: updated.sheet_name || null,
+          row_index: updated.row_index || null,
+          error: syncError || null,
+        },
+        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
+        ...updated,
+      });
     } catch (err: any) {
+      console.error('[Gate Out] Error:', err.message, err);
       res.status(500).json({ success: false, error: err.message });
     }
   };
@@ -277,8 +314,23 @@ export function createFleetRouter(dataStore: DataStore): Router {
         res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
-      res.status(200).json({ success: true, trip: updated, ...updated });
+
+      const syncSuccess = (updated as any).sheets_synced !== false;
+      const syncError = (updated as any).sheets_sync_error;
+      res.status(200).json({
+        success: true,
+        trip: updated,
+        sheets_sync: {
+          synced: syncSuccess,
+          sheet_name: updated.sheet_name || null,
+          row_index: updated.row_index || null,
+          error: syncError || null,
+        },
+        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
+        ...updated,
+      });
     } catch (err: any) {
+      console.error('[Close Active Trip] Error:', err.message, err);
       res.status(500).json({ success: false, error: err.message });
     }
   };
@@ -318,8 +370,23 @@ export function createFleetRouter(dataStore: DataStore): Router {
         res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
-      res.status(200).json({ success: true, trip: updated, ...updated });
+
+      const syncSuccess = (updated as any).sheets_synced !== false;
+      const syncError = (updated as any).sheets_sync_error;
+      res.status(200).json({
+        success: true,
+        trip: updated,
+        sheets_sync: {
+          synced: syncSuccess,
+          sheet_name: updated.sheet_name || null,
+          row_index: updated.row_index || null,
+          error: syncError || null,
+        },
+        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
+        ...updated,
+      });
     } catch (err: any) {
+      console.error('[Gate In] Error:', err.message, err);
       res.status(500).json({ success: false, error: err.message });
     }
   };
@@ -364,8 +431,23 @@ export function createFleetRouter(dataStore: DataStore): Router {
         res.status(404).json({ success: false, error: 'Trip not found' });
         return;
       }
-      res.status(200).json({ success: true, trip: updated, ...updated });
+
+      const syncSuccess = (updated as any).sheets_synced !== false;
+      const syncError = (updated as any).sheets_sync_error;
+      res.status(200).json({
+        success: true,
+        trip: updated,
+        sheets_sync: {
+          synced: syncSuccess,
+          sheet_name: updated.sheet_name || null,
+          row_index: updated.row_index || null,
+          error: syncError || null,
+        },
+        warning: syncError ? `Google Sheets sync warning: ${syncError}` : undefined,
+        ...updated,
+      });
     } catch (err: any) {
+      console.error('[PUT /trips/:id] Error:', err.message, err);
       res.status(500).json({ success: false, error: err.message });
     }
   };

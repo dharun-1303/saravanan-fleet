@@ -1,7 +1,139 @@
 import { v4 as uuidv4 } from 'uuid';
-import { Vehicle, Trip, GateStatus, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRecord, SettingRecord, SyncStatus } from './types/index.js';
+import { Vehicle, Trip, GateStatus, TripStatus, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRecord, SettingRecord, SyncStatus } from './types/index.js';
 import { GoogleSheetsClient } from './googleSheets.js';
 import { config } from './config.js';
+
+export const REQUIRED_TRIP_COLUMNS = [
+  'DATE',
+  'FROM',
+  'TO',
+  'START KM',
+  'END KM',
+  'DISTANCE',
+  'REMARK',
+  'AMOUNT',
+  'EMPLOYEE',
+  'DRIVER',
+  'PURPOSE',
+  'TRIP STATUS',
+  'GATE STATUS',
+  'GATE OUT TIME',
+  'GATE OUT BY',
+  'GATE IN TIME',
+  'GATE IN BY',
+  'ENROUTE',
+];
+
+export function mapTripToRow(headers: string[], trip: Trip): (string | number)[] {
+  return headers.map(rawHeader => {
+    const h = (rawHeader || '').toString().trim().toUpperCase();
+    if (h === 'DATE') return trip.date || '';
+    if (h === 'FROM' || h === 'ORIGIN' || h === 'SOURCE') return trip.from || '';
+    if (h === 'TO' || h === 'DESTINATION') return trip.to || '';
+    if (h.includes('ENROUTE') || h.includes('VIA') || h.includes('STOPS')) return trip.enroute || '';
+    if (h === 'START KM' || h === 'START_KM' || h === 'START ODOMETER') return Number(trip.start_km) || 0;
+    if (h === 'END KM' || h === 'END_KM' || h === 'END ODOMETER') return trip.end_km !== null && trip.end_km !== undefined ? Number(trip.end_km) : '';
+    if (h === 'DISTANCE' || h === 'KM RUN' || h === 'TOTAL KM') return trip.distance !== null && trip.distance !== undefined ? Number(trip.distance) : '';
+    if (h === 'REMARK' || h === 'REMARKS' || h === 'NOTES') return trip.remark || '';
+    if (h === 'PURPOSE') return trip.remark || '';
+    if (h === 'AMOUNT' || h === 'COST' || h === 'EXPENSE') return Number(trip.amount) || 0;
+    if (h === 'EMPLOYEE' || h === 'STAFF' || h === 'PASSENGER' || h === 'USER') return trip.employee || '';
+    if (h === 'DRIVER' || h === 'DRIVER NAME') return trip.driver || '';
+    if (h === 'TRIP STATUS' || h === 'STATUS') return trip.status || trip.trip_status || '';
+    if (h === 'GATE STATUS') return trip.gate_status || '';
+    if (h === 'GATE OUT TIME' || h === 'OUT TIME' || h.includes('DEPARTURE TIME')) return trip.gate_out_time || '';
+    if (h === 'GATE OUT BY' || h === 'OUT BY' || h.includes('SECURITY GUARD OUT')) return trip.gate_out_by || trip.security_guard_out || '';
+    if (h === 'GATE IN TIME' || h === 'IN TIME' || h.includes('ARRIVAL TIME')) return trip.gate_in_time || '';
+    if (h === 'GATE IN BY' || h === 'IN BY' || h.includes('SECURITY GUARD IN')) return trip.gate_in_by || trip.security_guard_in || '';
+    if (h === 'TRIP ID' || h === 'TRIP_ID' || h === 'ID') return trip.trip_id || '';
+    if (h === 'VEHICLE' || h === 'VEHICLE ID' || h === 'VEHICLE_ID') return trip.vehicle_id || '';
+    return '';
+  });
+}
+
+export function parseTripFromRow(
+  headers: string[],
+  r: any[],
+  candidateTab: string,
+  rowIndex: number,
+  vehicleId: string
+): Trip | null {
+  if (!r || r.length === 0) return null;
+  const firstCol = (r[0] || '').toString().trim();
+  if (!firstCol || firstCol.toUpperCase().includes('TOTAL')) return null;
+
+  const valByHeader = (pattern: RegExp): string => {
+    const idx = headers.findIndex(h => pattern.test(h.trim().toUpperCase()));
+    return idx !== -1 && r[idx] !== undefined && r[idx] !== null ? r[idx].toString().trim() : '';
+  };
+
+  const date = valByHeader(/^DATE$/) || (r[0] || '').toString().trim();
+  if (!date) return null;
+
+  const from = valByHeader(/^(FROM|ORIGIN|SOURCE)$/) || (r[1] || '').toString().trim();
+  const to = valByHeader(/^(TO|DESTINATION)$/) || (r[2] || '').toString().trim();
+  
+  const rawStartKm = valByHeader(/^(START KM|START_KM|START ODOMETER)$/);
+  const startKm = rawStartKm !== '' ? parseFloat(rawStartKm) : (parseFloat(r[3]) || 0);
+
+  const rawEndKm = valByHeader(/^(END KM|END_KM|END ODOMETER)$/);
+  const endKmStr = rawEndKm !== '' ? rawEndKm : (r[4] !== undefined && r[4] !== null ? r[4].toString().trim() : '');
+  const endKm = endKmStr !== '' && !isNaN(parseFloat(endKmStr)) ? parseFloat(endKmStr) : null;
+
+  const rawDist = valByHeader(/^(DISTANCE|KM RUN|TOTAL KM)$/);
+  const dist = rawDist !== '' ? parseFloat(rawDist) : (parseFloat(r[5]) || (endKm !== null && endKm >= startKm ? endKm - startKm : 0));
+
+  const remark = valByHeader(/^(REMARK|REMARKS|NOTES)$/) || valByHeader(/^PURPOSE$/) || (r[6] || '').toString().trim();
+  const rawAmount = valByHeader(/^(AMOUNT|COST|EXPENSE)$/);
+  const amount = rawAmount !== '' ? parseFloat(rawAmount) : (parseFloat(r[7]) || 0);
+
+  const employee = valByHeader(/^(EMPLOYEE|STAFF|PASSENGER|USER)$/) || (headers[8] === 'EMPLOYEE' ? (r[8] || '').toString().trim() : '');
+  const driver = valByHeader(/^(DRIVER|DRIVER NAME)$/) || (headers[9] === 'DRIVER' ? (r[9] || '').toString().trim() : '');
+
+  const rawTripStatus = valByHeader(/^(TRIP STATUS|STATUS)$/);
+  const tripStatus: TripStatus = (rawTripStatus === 'COMPLETED' || rawTripStatus === 'IN_TRANSIT' || rawTripStatus === 'UNFINISHED')
+    ? (rawTripStatus as TripStatus)
+    : (endKm !== null && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED');
+
+  const rawGate = valByHeader(/^GATE STATUS$/) as GateStatus;
+  const defaultGate: GateStatus = endKm !== null && endKm >= startKm ? 'COMPLETED' : 'PENDING_EXIT';
+  const gateStatus: GateStatus = ['PENDING_EXIT', 'DISPATCHED', 'PENDING_ENTRY', 'COMPLETED'].includes(rawGate)
+    ? rawGate
+    : defaultGate;
+
+  const gateOutTime = valByHeader(/^(GATE OUT TIME|OUT TIME|DEPARTURE TIME)$/) || undefined;
+  const gateOutBy = valByHeader(/^(GATE OUT BY|OUT BY|SECURITY GUARD OUT)$/) || undefined;
+  const gateInTime = valByHeader(/^(GATE IN TIME|IN TIME|ARRIVAL TIME)$/) || undefined;
+  const gateInBy = valByHeader(/^(GATE IN BY|IN BY|SECURITY GUARD IN)$/) || undefined;
+  const enroute = valByHeader(/(ENROUTE|VIA|STOPS)/) || undefined;
+  const idFromSheet = valByHeader(/^(TRIP ID|ID)$/);
+
+  return {
+    trip_id: idFromSheet || `trip-s-${candidateTab}-${rowIndex}`,
+    vehicle_id: vehicleId,
+    date,
+    from,
+    to,
+    enroute: enroute ? enroute.trim() : undefined,
+    start_km: startKm,
+    end_km: endKm,
+    distance: dist,
+    remark,
+    amount,
+    employee: employee || undefined,
+    driver: driver || undefined,
+    status: tripStatus,
+    trip_status: tripStatus,
+    gate_status: gateStatus,
+    sheet_name: candidateTab,
+    row_index: rowIndex,
+    gate_out_time: gateOutTime || undefined,
+    gate_out_by: gateOutBy || undefined,
+    gate_in_time: gateInTime || undefined,
+    gate_in_by: gateInBy || undefined,
+    sheets_synced: true,
+  };
+}
 
 export class DataStore {
   private sheetsClient: GoogleSheetsClient;
@@ -314,46 +446,13 @@ export class DataStore {
 
         const tabRows = batchData.get(candidateTab) || [];
         if (tabRows.length > 1) {
-          const header = (tabRows[0] || []).map((h: any) => (h || '').toString().toUpperCase().trim());
-          const enrouteColIdx = header.findIndex((h: string) => h.includes('ENROUTE') || h.includes('VIA'));
-
+          const headers = (tabRows[0] || []).map((h: any) => (h || '').toString().trim());
           for (let i = 1; i < tabRows.length; i++) {
             const r = tabRows[i];
-            if (!r[0] || (r[0] || '').toString().toUpperCase().includes('TOTAL')) continue;
-            const startKm = parseFloat(r[3]) || 0;
-            const endKm = r[4] ? parseFloat(r[4]) : null;
-            const dist = parseFloat(r[5]) || (endKm ? Math.max(0, endKm - startKm) : 0);
-            const rawGate = (r[8] || '').toString().trim() as GateStatus;
-            const defaultGate: GateStatus = endKm && endKm >= startKm ? 'COMPLETED' : 'PENDING_EXIT';
-            const gateStatus: GateStatus = ['PENDING_EXIT', 'DISPATCHED', 'PENDING_ENTRY', 'COMPLETED'].includes(rawGate)
-              ? rawGate
-              : defaultGate;
-
-            const enrouteVal = enrouteColIdx !== -1
-              ? (r[enrouteColIdx] || '').toString().trim()
-              : (r[13] || '').toString().trim();
-
-            loadedTrips.push({
-              trip_id: `trip-s-${candidateTab}-${i}`,
-              vehicle_id: v.vehicle_id,
-              date: (r[0] || '').toString(),
-              from: (r[1] || '').toString(),
-              to: (r[2] || '').toString(),
-              enroute: enrouteVal || undefined,
-              start_km: startKm,
-              end_km: endKm,
-              distance: dist,
-              remark: (r[6] || '').toString(),
-              amount: parseFloat(r[7]) || 0,
-              status: endKm && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED',
-              sheet_name: candidateTab,
-              row_index: i + 1,
-              gate_status: gateStatus,
-              gate_out_time: (r[9] || '').toString() || undefined,
-              gate_out_by: (r[10] || '').toString() || undefined,
-              gate_in_time: (r[11] || '').toString() || undefined,
-              gate_in_by: (r[12] || '').toString() || undefined,
-            });
+            const parsedTrip = parseTripFromRow(headers, r, candidateTab, i + 1, v.vehicle_id);
+            if (parsedTrip) {
+              loadedTrips.push(parsedTrip);
+            }
           }
         }
       }
@@ -656,7 +755,39 @@ export class DataStore {
     return updated;
   }
 
-  public async addTrip(tripData: Omit<Trip, 'trip_id' | 'distance' | 'status'> & Partial<Pick<Trip, 'status' | 'trip_status'>>): Promise<Trip> {
+  public async resolveTargetTripTab(vehicleId: string): Promise<string> {
+    const v = this.getVehicleById(vehicleId);
+    let targetTab = v?.sheet_tab_name || '';
+
+    if (this.sheetsClient.isConfigured()) {
+      try {
+        const allTabs = await this.sheetsClient.getSheetsMetadata();
+        if (targetTab && allTabs.includes(targetTab)) {
+          return targetTab;
+        }
+        if (targetTab) {
+          const matched = allTabs.find(t => t.trim().toLowerCase() === targetTab.trim().toLowerCase());
+          if (matched) return matched;
+        }
+        if (v) {
+          const cleanReg = (v.registration_number || '').toLowerCase().replace(/[\s\-_]/g, '');
+          const cleanName = (v.vehicle_name || '').toLowerCase().replace(/[\s\-_]/g, '');
+          const matched = allTabs.find(t => {
+            const cleanT = t.toLowerCase().replace(/[\s\-_]/g, '');
+            return (cleanReg && cleanT.includes(cleanReg)) || (cleanName && cleanT.includes(cleanName));
+          });
+          if (matched) return matched;
+        }
+        const defaultTrips = allTabs.find(t => t.toLowerCase() === 'trips');
+        if (defaultTrips) return defaultTrips;
+      } catch (err: any) {
+        console.warn('[DataStore] resolveTargetTripTab metadata check error:', err.message);
+      }
+    }
+    return targetTab || 'Trips';
+  }
+
+  public async addTrip(tripData: Omit<Trip, 'trip_id' | 'distance' | 'status'> & Partial<Pick<Trip, 'status' | 'trip_status'>> & { sheets_synced?: boolean; sheets_sync_error?: string }): Promise<Trip> {
     const startKm = Number(tripData.start_km);
     const endKm = tripData.end_km !== undefined && tripData.end_km !== null ? Number(tripData.end_km) : null;
     const distance = endKm !== null && endKm >= startKm ? endKm - startKm : 0;
@@ -682,34 +813,29 @@ export class DataStore {
 
     if (this.sheetsClient.isConfigured()) {
       try {
-        const vehicle = this.vehicles.find(v => v.vehicle_id === newTrip.vehicle_id);
-        const targetTab = vehicle?.sheet_tab_name || 'Trips';
-        await this.sheetsClient.ensureTabExists(targetTab, [
-          'DATE', 'FROM', 'TO', 'START KM', 'END KM', 'DISTANCE', 'REMARK', 'AMOUNT',
-          'GATE STATUS', 'GATE OUT TIME', 'GATE OUT BY', 'GATE IN TIME', 'GATE IN BY', 'ENROUTE'
-        ]);
-        const res = await this.sheetsClient.appendRow(targetTab, [
-          newTrip.date,
-          newTrip.from,
-          newTrip.to,
-          newTrip.start_km,
-          newTrip.end_km ?? '',
-          newTrip.distance,
-          newTrip.remark,
-          newTrip.amount,
-          newTrip.gate_status || '',
-          newTrip.gate_out_time || '',
-          newTrip.gate_out_by || '',
-          newTrip.gate_in_time || '',
-          newTrip.gate_in_by || '',
-          newTrip.enroute || '',
-        ]);
+        const targetTab = await this.resolveTargetTripTab(newTrip.vehicle_id);
+        await this.sheetsClient.ensureTabExists(targetTab, REQUIRED_TRIP_COLUMNS);
+        const headers = await this.sheetsClient.ensureColumnsExist(targetTab, REQUIRED_TRIP_COLUMNS);
+        const rowValues = mapTripToRow(headers, newTrip);
+
+        console.log(`[GoogleSheets] Explicitly awaiting append for trip ${newTrip.trip_id} on tab "${targetTab}" (${rowValues.length} columns)...`);
+        const res = await this.sheetsClient.appendRow(targetTab, rowValues);
         newTrip.sheet_name = targetTab;
         newTrip.row_index = res.rowIndex;
+        newTrip.sheets_synced = true;
+        this.syncStatus.last_synced_at = new Date().toISOString();
+        console.log(`[GoogleSheets] Trip ${newTrip.trip_id} appended successfully to "${targetTab}" at row ${res.rowIndex}`);
       } catch (err: any) {
-        console.error('[DataStore] Failed writing trip to Google Sheets:', err.message);
+        newTrip.sheets_synced = false;
+        newTrip.sheets_sync_error = err.message || 'Unknown Google Sheets API error';
+        console.error(`[GoogleSheets] Explicit append error for trip ${newTrip.trip_id}:`, err.message, err);
       }
+    } else {
+      newTrip.sheets_synced = false;
+      newTrip.sheets_sync_error = 'Google Sheets is offline or mock mode';
+      console.warn(`[GoogleSheets] Offline/Mock Mode: Trip ${newTrip.trip_id} stored in local cache.`);
     }
+
     return newTrip;
   }
 
@@ -773,59 +899,52 @@ export class DataStore {
     this.trips[index] = merged;
 
     if (this.sheetsClient.isConfigured()) {
-      const syncTask = (async () => {
-        const vehicle = this.vehicles.find(v => v.vehicle_id === merged.vehicle_id);
-        const targetTab = merged.sheet_name || vehicle?.sheet_tab_name || 'Trips';
-        try {
-          let targetRowIndex = merged.row_index;
-          if (!targetRowIndex || targetRowIndex <= 1) {
-            const rows = await this.sheetsClient.readSheetValues(targetTab);
-            const foundIdx = rows.findIndex((r, idx) => {
-              if (idx === 0) return false;
-              const rDate = (r[0] || '').toString();
-              const rStart = parseFloat(r[3]) || 0;
-              return rDate === existing.date && rStart === existing.start_km;
-            });
-            if (foundIdx > 0) {
-              targetRowIndex = foundIdx + 1;
-              merged.row_index = targetRowIndex;
-              merged.sheet_name = targetTab;
-            }
-          }
-
-          if (targetRowIndex && targetRowIndex > 1) {
-            await this.sheetsClient.updateRow(targetTab, targetRowIndex, [
-              merged.date,
-              merged.from,
-              merged.to,
-              merged.start_km,
-              merged.end_km ?? '',
-              merged.distance,
-              merged.remark,
-              merged.amount,
-              merged.gate_status || '',
-              merged.gate_out_time || '',
-              merged.gate_out_by || merged.security_guard_out || '',
-              merged.gate_in_time || '',
-              merged.gate_in_by || merged.security_guard_in || '',
-              merged.enroute || '',
-            ]);
-          }
-        } catch (err: any) {
-          console.error('[DataStore] Error updating trip in Sheets:', err.message);
-        }
-      })();
-
       try {
-        // Enforce a 2.5-second timeout guard so Google Sheets latency or rate limiting never hangs the HTTP response
-        await Promise.race([
-          syncTask,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Google Sheets sync timeout')), 2500)),
-        ]);
+        const targetTab = merged.sheet_name || await this.resolveTargetTripTab(merged.vehicle_id);
+        await this.sheetsClient.ensureTabExists(targetTab, REQUIRED_TRIP_COLUMNS);
+        const headers = await this.sheetsClient.ensureColumnsExist(targetTab, REQUIRED_TRIP_COLUMNS);
+
+        let targetRowIndex = merged.row_index;
+        if (!targetRowIndex || targetRowIndex <= 1) {
+          const rows = await this.sheetsClient.readSheetValues(targetTab);
+          const foundIdx = rows.findIndex((r, idx) => {
+            if (idx === 0) return false;
+            const rDate = (r[0] || '').toString();
+            const rStart = parseFloat(r[3]) || 0;
+            return rDate === existing.date && rStart === existing.start_km;
+          });
+          if (foundIdx > 0) {
+            targetRowIndex = foundIdx + 1;
+            merged.row_index = targetRowIndex;
+            merged.sheet_name = targetTab;
+          }
+        }
+
+        const rowValues = mapTripToRow(headers, merged);
+        if (targetRowIndex && targetRowIndex > 1) {
+          console.log(`[GoogleSheets] Explicitly updating trip ${merged.trip_id} in tab "${targetTab}" row ${targetRowIndex}...`);
+          await this.sheetsClient.updateRow(targetTab, targetRowIndex, rowValues);
+          (merged as any).sheets_synced = true;
+          this.syncStatus.last_synced_at = new Date().toISOString();
+          console.log(`[GoogleSheets] Trip ${merged.trip_id} updated successfully in "${targetTab}" row ${targetRowIndex}`);
+        } else {
+          console.log(`[GoogleSheets] Row index not found for trip ${merged.trip_id}; appending to tab "${targetTab}"...`);
+          const res = await this.sheetsClient.appendRow(targetTab, rowValues);
+          merged.row_index = res.rowIndex;
+          merged.sheet_name = targetTab;
+          (merged as any).sheets_synced = true;
+          this.syncStatus.last_synced_at = new Date().toISOString();
+        }
       } catch (err: any) {
-        console.warn('[DataStore] Google Sheets sync deferred to background for updateTrip:', err.message);
+        (merged as any).sheets_synced = false;
+        (merged as any).sheets_sync_error = err.message || 'Unknown Google Sheets API error';
+        console.error(`[GoogleSheets] Explicit update error for trip ${merged.trip_id}:`, err.message, err);
       }
+    } else {
+      (merged as any).sheets_synced = false;
+      (merged as any).sheets_sync_error = 'Google Sheets is offline or mock mode';
     }
+
     return merged;
   }
 

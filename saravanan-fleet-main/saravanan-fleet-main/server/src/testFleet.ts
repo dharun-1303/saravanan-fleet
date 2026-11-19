@@ -1,6 +1,7 @@
-import { DataStore } from './dataStore.js';
-import { AnalyticsEngine } from './analytics.js';
-import { AlertEngine } from './alerts.js';
+process.env.NODE_ENV = 'test';
+const { DataStore } = await import('./dataStore.js');
+const { AnalyticsEngine } = await import('./analytics.js');
+const { AlertEngine } = await import('./alerts.js');
 
 async function runFleetVerificationTests() {
   console.log('🧪 Starting Saravanan Fleet Management Integration Tests...\n');

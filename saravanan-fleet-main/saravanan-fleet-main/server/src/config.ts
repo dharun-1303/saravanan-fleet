@@ -7,7 +7,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const serverDir = path.resolve(__dirname, '..');
 
-dotenv.config({ path: path.join(serverDir, '.env') });
+// Robustly locate and load .env from multiple possible directory structures
+const candidateEnvFiles = [
+  path.join(serverDir, '.env'),
+  path.join(process.cwd(), '.env'),
+  path.join(process.cwd(), 'server', '.env'),
+  path.resolve(__dirname, '../../.env'),
+];
+for (const envFile of candidateEnvFiles) {
+  if (fs.existsSync(envFile)) {
+    dotenv.config({ path: envFile });
+  }
+}
 dotenv.config();
 
 export interface AppConfig {
@@ -35,17 +46,23 @@ const CLIENT_EMAIL = (process.env.GOOGLE_CLIENT_EMAIL || '').trim();
 const PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n') || '';
 const SYNC_INTERVAL_MS = parseInt(process.env.SYNC_INTERVAL_MS || '60000', 10);
 
-// Resolve relative credentials path against server directory or cwd
+// Resolve credentials path against env path, server dir, cwd, or local fleet-manager-credentials.json
 let resolvedCredentialsPath = '';
-if (rawCredentialsPath) {
-  if (path.isAbsolute(rawCredentialsPath) && fs.existsSync(rawCredentialsPath)) {
-    resolvedCredentialsPath = rawCredentialsPath;
-  } else if (fs.existsSync(path.resolve(serverDir, rawCredentialsPath))) {
-    resolvedCredentialsPath = path.resolve(serverDir, rawCredentialsPath);
-  } else if (fs.existsSync(path.resolve(process.cwd(), rawCredentialsPath))) {
-    resolvedCredentialsPath = path.resolve(process.cwd(), rawCredentialsPath);
-  } else {
-    resolvedCredentialsPath = rawCredentialsPath;
+const candidateCredPaths = [
+  rawCredentialsPath,
+  rawCredentialsPath ? path.resolve(serverDir, rawCredentialsPath) : '',
+  rawCredentialsPath ? path.resolve(process.cwd(), rawCredentialsPath) : '',
+  path.resolve(serverDir, 'fleet-manager-credentials.json'),
+  path.resolve(process.cwd(), 'fleet-manager-credentials.json'),
+  path.resolve(process.cwd(), 'server', 'fleet-manager-credentials.json'),
+  path.resolve(serverDir, 'service-account.json'),
+  path.resolve(process.cwd(), 'service-account.json'),
+].filter(Boolean);
+
+for (const p of candidateCredPaths) {
+  if (p && fs.existsSync(p)) {
+    resolvedCredentialsPath = p;
+    break;
   }
 }
 
@@ -64,6 +81,12 @@ if (resolvedCredentialsPath && fs.existsSync(resolvedCredentialsPath)) {
   hasCredentials = true;
 }
 
+if (!hasCredentials) {
+  console.warn('[Config] No Google Service Account credentials found. Running in offline/mock cache mode.');
+} else {
+  console.log(`[Config] Google Credentials loaded: ${resolvedCredentialsPath || 'JSON string / Service Account'}`);
+}
+
 export const config: AppConfig = {
   port: PORT,
   spreadsheetId: SPREADSHEET_ID,
@@ -73,5 +96,5 @@ export const config: AppConfig = {
   clientEmail: CLIENT_EMAIL,
   privateKey: PRIVATE_KEY,
   syncIntervalMs: SYNC_INTERVAL_MS,
-  isMockMode: !hasCredentials || !SPREADSHEET_ID,
+  isMockMode: !hasCredentials || !SPREADSHEET_ID || process.env.NODE_ENV === 'test',
 };

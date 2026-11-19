@@ -2,6 +2,17 @@ import { google, sheets_v4 } from 'googleapis';
 import fs from 'fs';
 import { config } from './config.js';
 
+export function getColumnLetter(colIndex1Based: number): string {
+  let temp = colIndex1Based;
+  let letter = '';
+  while (temp > 0) {
+    const mod = (temp - 1) % 26;
+    letter = String.fromCharCode(65 + mod) + letter;
+    temp = Math.floor((temp - mod) / 26);
+  }
+  return letter || 'A';
+}
+
 export class GoogleSheetsClient {
   private sheets: sheets_v4.Sheets | null = null;
   private authClient: any = null;
@@ -51,7 +62,7 @@ export class GoogleSheetsClient {
   private readonly METADATA_TTL_MS = 60000; // Cache metadata for 60 seconds
 
   public isConfigured(): boolean {
-    return this.sheets !== null && Boolean(this.spreadsheetId);
+    return this.sheets !== null && Boolean(this.spreadsheetId) && !config.isMockMode;
   }
 
   public async getSheetsMetadata(forceRefresh = false): Promise<string[]> {
@@ -139,25 +150,84 @@ export class GoogleSheetsClient {
           ],
         },
       });
-      // Write header row
+      // Write header row using accurate column letter
+      const endCol = getColumnLetter(headers.length);
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `'${sheetName}'!A1:${String.fromCharCode(64 + headers.length)}1`,
+        range: `'${sheetName}'!A1:${endCol}1`,
         valueInputOption: 'USER_ENTERED',
         requestBody: { values: [headers] },
       });
       this.knownTabs.add(sheetName);
       return true;
     } catch (err: any) {
-      console.error(`[GoogleSheetsClient] ensureTabExists error for ${sheetName}:`, err.message);
+      console.error(`[GoogleSheetsClient] ensureTabExists error for ${sheetName}:`, err.message, err);
       return false;
+    }
+  }
+
+  public async ensureColumnsExist(sheetName: string, requiredColumns: string[]): Promise<string[]> {
+    if (!this.sheets || !this.spreadsheetId) return requiredColumns;
+    try {
+      const rows = await this.readSheetValues(sheetName);
+      if (rows.length === 0 || !rows[0] || rows[0].length === 0) {
+        // Tab has no rows; write required headers
+        const endCol = getColumnLetter(requiredColumns.length);
+        await this.sheets.spreadsheets.values.update({
+          spreadsheetId: this.spreadsheetId,
+          range: `'${sheetName}'!A1:${endCol}1`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [requiredColumns] },
+        });
+        return [...requiredColumns];
+      }
+
+      const existingHeaders: string[] = rows[0].map(h => (h || '').toString());
+      const normalizedExisting = existingHeaders.map(h => h.trim().toUpperCase());
+      const missingColumns: string[] = [];
+
+      for (const reqCol of requiredColumns) {
+        const norm = reqCol.trim().toUpperCase();
+        const exists = normalizedExisting.some(ex => {
+          if (ex === norm) return true;
+          if ((norm.includes('ENROUTE') || norm.includes('VIA')) && (ex.includes('ENROUTE') || ex.includes('VIA'))) return true;
+          if (norm.includes('GATE STATUS') && ex.includes('GATE STATUS')) return true;
+          if (norm.includes('GATE OUT TIME') && (ex.includes('GATE OUT TIME') || ex === 'OUT TIME')) return true;
+          if (norm.includes('GATE OUT BY') && (ex.includes('GATE OUT BY') || ex === 'OUT BY')) return true;
+          if (norm.includes('GATE IN TIME') && (ex.includes('GATE IN TIME') || ex === 'IN TIME')) return true;
+          if (norm.includes('GATE IN BY') && (ex.includes('GATE IN BY') || ex === 'IN BY')) return true;
+          if (norm.includes('TRIP STATUS') && (ex === 'TRIP STATUS' || ex === 'STATUS')) return true;
+          return false;
+        });
+        if (!exists) {
+          missingColumns.push(reqCol);
+        }
+      }
+
+      if (missingColumns.length > 0) {
+        const newHeaders = [...existingHeaders, ...missingColumns];
+        const endCol = getColumnLetter(newHeaders.length);
+        console.log(`[GoogleSheetsClient] Dynamically appending missing column headers to "${sheetName}":`, missingColumns);
+        await this.sheets.spreadsheets.values.update({
+          spreadsheetId: this.spreadsheetId,
+          range: `'${sheetName}'!A1:${endCol}1`,
+          valueInputOption: 'USER_ENTERED',
+          requestBody: { values: [newHeaders] },
+        });
+        return newHeaders;
+      }
+
+      return existingHeaders;
+    } catch (err: any) {
+      console.error(`[GoogleSheetsClient] ensureColumnsExist error for "${sheetName}":`, err.message, err);
+      return requiredColumns;
     }
   }
 
   public async updateRow(sheetName: string, rowIndex: number, values: (string | number)[]): Promise<boolean> {
     if (!this.sheets || !this.spreadsheetId) return false;
     try {
-      const endCol = String.fromCharCode(64 + values.length);
+      const endCol = getColumnLetter(values.length);
       const range = `'${sheetName}'!A${rowIndex}:${endCol}${rowIndex}`;
       await this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
@@ -167,7 +237,7 @@ export class GoogleSheetsClient {
       });
       return true;
     } catch (err: any) {
-      console.error(`[GoogleSheetsClient] updateRow error for ${sheetName} row ${rowIndex}:`, err.message);
+      console.error(`[GoogleSheetsClient] updateRow error for ${sheetName} row ${rowIndex}:`, err.message, err);
       throw err;
     }
   }
@@ -224,9 +294,10 @@ export class GoogleSheetsClient {
       }
 
       // No totals row, standard append
+      const endCol = getColumnLetter(Math.max(values.length, 26));
       const res = await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
-        range: `'${sheetName}'!A:Z`,
+        range: `'${sheetName}'!A:${endCol}`,
         valueInputOption: 'USER_ENTERED',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values: [values] },
@@ -237,7 +308,7 @@ export class GoogleSheetsClient {
       const parsedRowIndex = match ? parseInt(match[1], 10) : insertIndex;
       return { success: true, rowIndex: parsedRowIndex };
     } catch (err: any) {
-      console.error(`[GoogleSheetsClient] appendRow error for ${sheetName}:`, err.message);
+      console.error(`[GoogleSheetsClient] appendRow error for ${sheetName}:`, err.message, err);
       throw err;
     }
   }

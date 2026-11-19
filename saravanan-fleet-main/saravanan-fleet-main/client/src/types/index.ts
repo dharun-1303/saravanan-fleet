@@ -38,6 +38,8 @@ export interface Trip {
   gate_in_time?: string;
   gate_in_by?: string;
   security_guard_in?: string;
+  sheets_synced?: boolean;
+  sheets_sync_error?: string;
 }
 
 export interface FuelRecord {
