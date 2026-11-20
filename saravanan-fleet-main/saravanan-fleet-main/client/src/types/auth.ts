@@ -76,6 +76,7 @@ export const DEFAULT_USERS = [
     username: 'admin',
     password: 'admin123',
     role: 'super_admin' as UserRole,
+  }, 
   {
     id: 'u-admin',
     name: 'Krishna Kumar G',
@@ -84,7 +85,6 @@ export const DEFAULT_USERS = [
     password: 'admin1234',
     role: 'super_admin' as UserRole,
   },  
-  },
   {
     id: 'u-manager',
     name: 'Operations Manager',
