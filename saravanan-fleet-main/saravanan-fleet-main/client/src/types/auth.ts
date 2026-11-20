@@ -71,7 +71,7 @@ export const ROLE_CONFIGS: Record<UserRole, RoleConfig> = {
 export const DEFAULT_USERS = [
   {
     id: 'u-admin',
-    name: 'Saravanan Perumal',
+    name: 'Saravanan G',
     email: 'admin@saravanan.com',
     username: 'admin',
     password: 'admin123',
@@ -100,7 +100,7 @@ export const DEFAULT_DRIVER_PIN = '1234';
 
 export const KNOWN_DRIVERS = [
   'Sathish',
-  'Saravanan Perumal',
+  'Saravana Perumal',
   'Ravi',
   
 ];
