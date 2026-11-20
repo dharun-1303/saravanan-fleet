@@ -76,14 +76,6 @@ export const DEFAULT_USERS = [
     username: 'admin',
     password: 'admin123',
     role: 'super_admin' as UserRole,
-  }, 
-  {
-    id: 'u-admin',
-    name: 'Krishna Kumar G',
-    email: 'admin1@saravanan.com',
-    username: 'admin1',
-    password: 'admin1234',
-    role: 'super_admin' as UserRole,
   },  
   {
     id: 'u-manager',
