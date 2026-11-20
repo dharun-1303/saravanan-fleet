@@ -101,10 +101,8 @@ export const DEFAULT_DRIVER_PIN = '1234';
 export const KNOWN_DRIVERS = [
   'Sathish',
   'Saravanan Perumal',
-  'Gowtham',
-  'Vignesh',
-  'Ramesh',
-  'Karthik',
+  'Ravi',
+  
 ];
 
 export interface RolePermissions {
