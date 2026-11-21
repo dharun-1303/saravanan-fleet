@@ -1445,7 +1445,7 @@ export const Trips: React.FC<TripsProps> = ({
                       <option value="">Select Driver</option>
                       <option value="Sathish">Sathish</option>
                       <option value="Saravana Perumal">Saravanan Perumal</option>
-                      <option value="Ravi">Ravi</option>
+                      <option value="Kavi">Kavi</option>
                     </select>
                   </div>
                   <div>
