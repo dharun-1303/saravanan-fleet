@@ -528,7 +528,13 @@ export const App: React.FC = () => {
 
       // Optimistically update local trips state immediately
       if (updated) {
-        setTrips(prev => prev.map(t => (t.trip_id === id ? { ...t, ...updated } : t)));
+        setTrips(prev => {
+          const exists = prev.some(t => t.trip_id === id || t.trip_id === updated!.trip_id);
+          if (exists) {
+            return prev.map(t => (t.trip_id === id || t.trip_id === updated!.trip_id ? { ...t, ...updated } : t));
+          }
+          return [updated!, ...prev];
+        });
       } else {
         setTrips(prev => prev.map(t => (t.trip_id === id ? { ...t, ...data } : t)));
       }

@@ -48,6 +48,44 @@ interface DashboardProps {
 
 const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
 
+/**
+ * Robust helper to determine whether a trip is actively in transit:
+ * Checks active trip statuses ('IN_TRANSIT', 'ON TRANSIT', 'ACTIVE', 'IN PROGRESS', 'UNFINISHED'),
+ * active gate statuses ('DISPATCHED', 'GATE OUT', 'PENDING_EXIT', 'PENDING_ENTRY'),
+ * and gate out without gate in.
+ */
+export const isTripInTransit = (t: Trip): boolean => {
+  if (!t) return false;
+  const status = (t.status || t.trip_status || '').toString().trim().toUpperCase();
+  const gateStatus = (t.gate_status || '').toString().trim().toUpperCase();
+
+  // Completed trips are never in transit
+  if (status === 'COMPLETED' && (gateStatus === 'COMPLETED' || t.gate_in_time)) return false;
+  if (gateStatus === 'COMPLETED' && t.end_km !== null && t.end_km !== undefined && String(t.end_km).trim() !== '' && Number(t.end_km) > 0) return false;
+
+  // Active trip status
+  if (['IN_TRANSIT', 'IN TRANSIT', 'ON TRANSIT', 'ON_TRANSIT', 'ACTIVE', 'IN PROGRESS', 'IN_PROGRESS', 'UNFINISHED'].includes(status)) {
+    return true;
+  }
+
+  // Active gate status (Gate Out / Dispatched / Pending Exit / Pending Entry) when not completed
+  if (['DISPATCHED', 'GATE OUT', 'GATE_OUT', 'OUT', 'PENDING_EXIT', 'PENDING EXIT', 'PENDING_ENTRY', 'PENDING ENTRY'].includes(gateStatus) && status !== 'COMPLETED') {
+    return true;
+  }
+
+  // Gate out time recorded without gate in
+  if (t.gate_out_time && !t.gate_in_time) {
+    return true;
+  }
+
+  // Trip started but end_km not recorded and not marked completed
+  if ((t.end_km === null || t.end_km === undefined || String(t.end_km).trim() === '') && status !== 'COMPLETED') {
+    return true;
+  }
+
+  return false;
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({
   vehicles,
   trips,
@@ -63,8 +101,30 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [quickFilter, setQuickFilter] = useState<'all' | 'this_month' | 'previous_month'>('this_month');
 
   const activeVehicles = vehicles.filter(v => v.active);
-  const unfinishedTrips = trips.filter(t => t.status === 'UNFINISHED');
-  const vehiclesInUseCount = new Set(unfinishedTrips.map(t => t.vehicle_id)).size;
+  const transitTrips = trips.filter(isTripInTransit);
+
+  const isVehicleInTransit = (v: Vehicle): boolean => {
+    const cleanVid = (v.vehicle_id || '').toLowerCase().trim();
+    const cleanReg = (v.registration_number || '').toLowerCase().replace(/[\s\-_]/g, '');
+    const cleanName = (v.vehicle_name || '').toLowerCase().trim();
+    const cleanTab = (v.sheet_tab_name || '').toLowerCase().trim();
+
+    return transitTrips.some(t => {
+      const tvid = (t.vehicle_id || '').toLowerCase().trim();
+      const cleanTvid = tvid.replace(/[\s\-_]/g, '');
+      if (!tvid) return false;
+      if (tvid === cleanVid) return true;
+      if (cleanReg && (cleanTvid === cleanReg || tvid.includes(cleanReg) || cleanReg.includes(cleanTvid))) return true;
+      if (cleanName && tvid === cleanName) return true;
+      if (cleanTab && tvid === cleanTab) return true;
+      return false;
+    });
+  };
+
+  const inTransitVehicleIds = new Set(
+    activeVehicles.filter(isVehicleInTransit).map(v => v.vehicle_id)
+  );
+  const vehiclesInUseCount = inTransitVehicleIds.size;
   const criticalAlerts = alerts.filter(a => a.severity === 'critical' && !a.dismissed);
   const expiringDocs = alerts.filter(a => (a.type === 'DOC_EXPIRING_SOON' || a.type === 'DOC_EXPIRED') && !a.dismissed);
   const dueServices = alerts.filter(a => (a.type.startsWith('SERVICE_')) && !a.dismissed);
@@ -135,7 +195,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <KPICard
           title="Vehicles in Transit"
           value={vehiclesInUseCount}
-          subtitle={`${unfinishedTrips.length} active trip${unfinishedTrips.length === 1 ? '' : 's'}`}
+          subtitle={`${transitTrips.length} active trip${transitTrips.length === 1 ? '' : 's'}`}
           icon={Clock}
           iconBgColor="bg-amber-50"
           iconColor="text-amber-600"
@@ -346,7 +406,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
           {vehicles.map(v => {
-            const hasUnfinished = unfinishedTrips.some(t => t.vehicle_id === v.vehicle_id);
+            const hasTransit = isVehicleInTransit(v);
             return (
               <div
                 key={v.vehicle_id}
@@ -367,9 +427,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         <span className="text-[9px] font-mono text-slate-300 font-semibold">{v.registration_number}</span>
                       </div>
                     )}
-                    {hasUnfinished && (
+                    {hasTransit && (
                       <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 bg-amber-500 text-white text-[9px] font-bold rounded-sm shadow-xs animate-pulse">
-                        In Transit
+                        On Transit
                       </span>
                     )}
                   </div>

@@ -143,21 +143,42 @@ export function parseTripFromRow(
   const employee = valByHeader(/^(EMPLOYEE|STAFF|PASSENGER|USER)$/) || (headers[8] === 'EMPLOYEE' ? (rowData[8] || '').toString().trim() : '');
   const driver = valByHeader(/^(DRIVER|DRIVER NAME)$/) || (headers[9] === 'DRIVER' ? (rowData[9] || '').toString().trim() : '');
 
-  const rawTripStatus = valByHeader(/^(TRIP STATUS|STATUS)$/);
-  const tripStatus: TripStatus = (rawTripStatus === 'COMPLETED' || rawTripStatus === 'IN_TRANSIT' || rawTripStatus === 'UNFINISHED')
-    ? (rawTripStatus as TripStatus)
-    : (endKm !== null && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED');
+  const rawTripStatus = valByHeader(/^(TRIP STATUS|STATUS)$/).trim().toUpperCase();
+  let tripStatus: TripStatus;
+  if (['COMPLETED', 'FINISHED', 'DONE'].includes(rawTripStatus)) {
+    tripStatus = 'COMPLETED';
+  } else if (['IN_TRANSIT', 'IN TRANSIT', 'ON TRANSIT', 'ON_TRANSIT', 'ACTIVE', 'IN PROGRESS', 'DISPATCHED'].includes(rawTripStatus)) {
+    tripStatus = 'IN_TRANSIT';
+  } else if (rawTripStatus === 'UNFINISHED') {
+    tripStatus = 'UNFINISHED';
+  } else {
+    tripStatus = (endKm !== null && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED');
+  }
 
-  const rawGate = valByHeader(/^GATE STATUS$/) as GateStatus;
-  const defaultGate: GateStatus = endKm !== null && endKm >= startKm ? 'COMPLETED' : 'PENDING_EXIT';
-  const gateStatus: GateStatus = ['PENDING_EXIT', 'DISPATCHED', 'PENDING_ENTRY', 'COMPLETED'].includes(rawGate)
-    ? rawGate
-    : defaultGate;
+  const rawGate = valByHeader(/^GATE STATUS$/).trim().toUpperCase();
+  let gateStatus: GateStatus;
+  if (['DISPATCHED', 'GATE OUT', 'GATE_OUT', 'OUT'].includes(rawGate)) {
+    gateStatus = 'DISPATCHED';
+  } else if (['COMPLETED', 'GATE IN', 'GATE_IN', 'IN'].includes(rawGate)) {
+    gateStatus = 'COMPLETED';
+  } else if (['PENDING_ENTRY', 'PENDING ENTRY', 'RETURNED'].includes(rawGate)) {
+    gateStatus = 'PENDING_ENTRY';
+  } else if (['PENDING_EXIT', 'PENDING EXIT', 'WAITING'].includes(rawGate)) {
+    gateStatus = 'PENDING_EXIT';
+  } else {
+    gateStatus = (endKm !== null && endKm >= startKm ? 'COMPLETED' : 'PENDING_EXIT');
+  }
 
   const gateOutTime = valByHeader(/^(GATE OUT TIME|OUT TIME|DEPARTURE TIME)$/) || undefined;
   const gateOutBy = valByHeader(/^(GATE OUT BY|OUT BY|SECURITY GUARD OUT)$/) || undefined;
   const gateInTime = valByHeader(/^(GATE IN TIME|IN TIME|ARRIVAL TIME)$/) || undefined;
   const gateInBy = valByHeader(/^(GATE IN BY|IN BY|SECURITY GUARD IN)$/) || undefined;
+
+  // Auto-align gate & trip status if gate out has occurred without gate in
+  if (gateOutTime && !gateInTime && gateStatus !== 'COMPLETED' && tripStatus !== 'COMPLETED') {
+    gateStatus = 'DISPATCHED';
+    tripStatus = 'IN_TRANSIT';
+  }
   const enroute = valByHeader(/(ENROUTE|VIA|STOPS)/) || undefined;
   const idFromSheet = valByHeader(/^(TRIP ID|ID)$/);
   const rawVeh = valByHeader(/^(VEHICLE|VEHICLE ID|VEHICLE_ID|REGISTRATION|REG NO)$/);
@@ -1081,8 +1102,27 @@ export class DataStore {
     const startKm = Number(tripData.start_km);
     const endKm = tripData.end_km !== undefined && tripData.end_km !== null ? Number(tripData.end_km) : null;
     const distance = endKm !== null && endKm >= startKm ? endKm - startKm : 0;
-    const status = tripData.status || tripData.trip_status || (endKm !== null && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED');
-    const gate_status: GateStatus = tripData.gate_status || (status === 'COMPLETED' ? 'COMPLETED' : 'PENDING_EXIT');
+    let status = tripData.status || tripData.trip_status || (endKm !== null && endKm >= startKm ? 'COMPLETED' : 'UNFINISHED');
+    let gate_status: GateStatus = tripData.gate_status || (status === 'COMPLETED' ? 'COMPLETED' : 'PENDING_EXIT');
+
+    const rawGate = (tripData.gate_status || '').toString().trim().toUpperCase();
+    if (['DISPATCHED', 'GATE OUT', 'GATE_OUT', 'OUT'].includes(rawGate)) {
+      gate_status = 'DISPATCHED';
+    } else if (['COMPLETED', 'GATE IN', 'GATE_IN', 'IN'].includes(rawGate)) {
+      gate_status = 'COMPLETED';
+    }
+
+    const rawStatus = (tripData.status || tripData.trip_status || '').toString().trim().toUpperCase();
+    if (['COMPLETED', 'FINISHED', 'DONE'].includes(rawStatus)) {
+      status = 'COMPLETED';
+    } else if (['IN_TRANSIT', 'IN TRANSIT', 'ON TRANSIT', 'ON_TRANSIT', 'ACTIVE', 'IN PROGRESS', 'DISPATCHED'].includes(rawStatus)) {
+      status = 'IN_TRANSIT';
+    }
+
+    if (tripData.gate_out_time && !tripData.gate_in_time && gate_status !== 'COMPLETED' && status !== 'COMPLETED') {
+      gate_status = 'DISPATCHED';
+      status = 'IN_TRANSIT';
+    }
 
     // Canonical vehicle resolution
     const v = this.getVehicleById(tripData.vehicle_id);
@@ -1203,6 +1243,34 @@ export class DataStore {
     } else {
       merged.status = updates.status || updates.trip_status || (merged.gate_status === 'DISPATCHED' ? 'IN_TRANSIT' : 'UNFINISHED');
       merged.distance = 0;
+    }
+
+    // Normalize gate_status case-insensitively
+    const rawGate = (updates.gate_status || merged.gate_status || '').toString().trim().toUpperCase();
+    if (['DISPATCHED', 'GATE OUT', 'GATE_OUT', 'OUT'].includes(rawGate)) {
+      merged.gate_status = 'DISPATCHED';
+    } else if (['COMPLETED', 'GATE IN', 'GATE_IN', 'IN'].includes(rawGate)) {
+      merged.gate_status = 'COMPLETED';
+    } else if (['PENDING_ENTRY', 'PENDING ENTRY', 'RETURNED'].includes(rawGate)) {
+      merged.gate_status = 'PENDING_ENTRY';
+    } else if (['PENDING_EXIT', 'PENDING EXIT', 'WAITING'].includes(rawGate)) {
+      merged.gate_status = 'PENDING_EXIT';
+    }
+
+    // Normalize trip status
+    const rawStatus = (updates.status || updates.trip_status || merged.status || '').toString().trim().toUpperCase();
+    if (['COMPLETED', 'FINISHED', 'DONE'].includes(rawStatus)) {
+      merged.status = 'COMPLETED';
+    } else if (['IN_TRANSIT', 'IN TRANSIT', 'ON TRANSIT', 'ON_TRANSIT', 'ACTIVE', 'IN PROGRESS', 'DISPATCHED'].includes(rawStatus)) {
+      merged.status = 'IN_TRANSIT';
+    } else if (rawStatus === 'UNFINISHED') {
+      merged.status = 'UNFINISHED';
+    }
+
+    // Auto-align gate & trip status if gate out has occurred without gate in
+    if (merged.gate_out_time && !merged.gate_in_time && merged.gate_status !== 'COMPLETED' && merged.status !== 'COMPLETED') {
+      merged.gate_status = 'DISPATCHED';
+      merged.status = 'IN_TRANSIT';
     }
 
     if (!merged.gate_status) {

@@ -214,17 +214,53 @@ export function createFleetRouter(dataStore: DataStore): Router {
   const handleGateOut = async (req: Request, res: Response) => {
     try {
       const tripId = req.body.trip_id || req.params.id;
-      if (!tripId) {
-        res.status(400).json({ success: false, error: 'Trip ID is required for Gate Out' });
-        return;
+      let existingTrip = tripId ? findTripById(String(tripId)) : undefined;
+
+      // Also try resolving active/pending trip by vehicle if tripId didn't match or was vehicle identifier
+      const targetVehicleIdent = req.body.vehicle_id || req.body.registration_number || (!existingTrip ? tripId : undefined);
+      if (!existingTrip && targetVehicleIdent) {
+        const v = dataStore.getVehicleById(String(targetVehicleIdent));
+        if (v) {
+          existingTrip = dataStore.getTrips(v.vehicle_id).find(t =>
+            t.status !== 'COMPLETED' || t.gate_status === 'PENDING_EXIT' || !t.gate_out_time
+          );
+        }
       }
-      const existingTrip = findTripById(String(tripId));
-      if (!existingTrip) {
-        res.status(404).json({ success: false, error: 'Trip not found' });
-        return;
-      }
+
       const gateOutTime = req.body.gate_out_time || new Date().toISOString();
       const gateOutBy = req.body.security_guard_out || req.body.gate_out_by || 'Gate Security Guard';
+
+      // If standalone Gate Out is initiated for a vehicle with no active trip, create one automatically
+      if (!existingTrip) {
+        const v = targetVehicleIdent ? dataStore.getVehicleById(String(targetVehicleIdent)) : undefined;
+        if (v) {
+          const newTrip = await dataStore.addTrip({
+            vehicle_id: v.vehicle_id,
+            date: new Date().toISOString().split('T')[0],
+            from: req.body.from || 'Yard / Gate',
+            to: req.body.to || 'Site / Client',
+            start_km: Number(req.body.start_km) || 0,
+            gate_status: 'DISPATCHED',
+            status: 'IN_TRANSIT',
+            trip_status: 'IN_TRANSIT',
+            gate_out_time: gateOutTime,
+            gate_out_by: gateOutBy,
+            security_guard_out: gateOutBy,
+            driver: req.body.driver || 'Fleet Driver',
+            remark: req.body.remark || req.body.remarks || '',
+            amount: Number(req.body.amount) || 0,
+          });
+          res.status(200).json({
+            success: true,
+            trip: newTrip,
+            ...newTrip,
+          });
+          return;
+        }
+
+        res.status(404).json({ success: false, error: 'Trip not found for Gate Out' });
+        return;
+      }
 
       const updated = await dataStore.updateTrip(existingTrip.trip_id, {
         gate_status: 'DISPATCHED',
