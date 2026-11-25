@@ -17,6 +17,8 @@ dist-ssr/
 !package-lock.json
 !tsconfig*.json
 !vercel.json
+!manifest.json
+!**/manifest.json
 service-account*.json
 credentials*.json
 *.pem

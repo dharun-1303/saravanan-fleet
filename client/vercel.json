@@ -20,6 +20,23 @@
       ]
     },
     {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/javascript; charset=utf-8"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
       "source": "/icon-(.*).png",
       "headers": [
         {
@@ -47,6 +64,10 @@
       "destination": "/manifest.json"
     },
     {
+      "source": "/sw.js",
+      "destination": "/sw.js"
+    },
+    {
       "source": "/icon-192.png",
       "destination": "/icon-192.png"
     },
@@ -55,7 +76,7 @@
       "destination": "/icon-512.png"
     },
     {
-      "source": "/((?!api/|manifest\\.json|icon-.*\\.png|favicon\\.ico|assets/).*)",
+      "source": "/((?!api/|manifest\\.json|sw\\.js|icon-.*\\.png|favicon\\.ico|assets/).*)",
       "destination": "/index.html"
     }
   ]
