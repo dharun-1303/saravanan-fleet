@@ -9,7 +9,6 @@ import {
   FileText,
   AlertTriangle,
   BarChart3,
-  FileSpreadsheet,
   Settings as SettingsIcon,
   Zap,
   X,
@@ -29,7 +28,6 @@ export type NavTab =
   | 'documents'
   | 'alerts'
   | 'analytics'
-  | 'reports'
   | 'settings';
 
 interface SidebarProps {
@@ -65,7 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'documents' as NavTab, label: 'Documents', icon: FileText },
     { id: 'alerts' as NavTab, label: 'Service Alerts', icon: AlertTriangle, badge: alertCount },
     { id: 'analytics' as NavTab, label: 'Analytics', icon: BarChart3 },
-    { id: 'reports' as NavTab, label: 'Reports', icon: FileSpreadsheet },
     { id: 'settings' as NavTab, label: 'Settings', icon: SettingsIcon },
   ];
 

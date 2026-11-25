@@ -44,6 +44,7 @@ interface DashboardProps {
   onAddTrip: () => void;
   onOpenQRScanner?: () => void;
   currentUser?: AuthUser | null;
+  onExportCSV?: () => void;
 }
 
 const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
@@ -96,6 +97,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onAddTrip,
   onOpenQRScanner,
   currentUser,
+  onExportCSV,
 }) => {
   const canAddTrip = currentUser ? ROLE_PERMISSIONS[currentUser.role]?.canAddTrip : true;
   const [quickFilter, setQuickFilter] = useState<'all' | 'this_month' | 'previous_month'>('this_month');
@@ -172,7 +174,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </button>
             )}
             <button
-              onClick={() => onNavigateTab('reports')}
+              onClick={onExportCSV ? onExportCSV : () => onNavigateTab('analytics')}
               className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl text-xs backdrop-blur-xs transition-all active:scale-95"
             >
               Export CSV

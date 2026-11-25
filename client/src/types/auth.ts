@@ -48,7 +48,7 @@ export const ROLE_CONFIGS: Record<UserRole, RoleConfig> = {
     color: '#f59e0b',
     badgeBg: 'bg-amber-100 border-amber-300',
     badgeText: 'text-amber-800',
-    description: 'View & export access to trips, fuel, expenses, and audit reports',
+    description: 'View & export access to trips, fuel, and expenses',
   },
   security_gate: {
     label: 'Security Gate',
@@ -159,7 +159,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
       'documents',
       'alerts',
       'analytics',
-      'reports',
       'settings',
     ],
     canAddVehicle: true,
@@ -193,7 +192,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
       'maintenance',
       'documents',
       'alerts',
-      'reports',
     ],
     canAddVehicle: true,
     canEditVehicle: true,
@@ -218,7 +216,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, RolePermissions> = {
     canExportCSV: true,
   },
   accounts_auditor: {
-    allowedTabs: ['trips', 'fuel', 'expenses', 'reports'],
+    allowedTabs: ['trips', 'fuel', 'expenses'],
     canAddVehicle: false,
     canEditVehicle: false,
     canDeleteVehicle: false,

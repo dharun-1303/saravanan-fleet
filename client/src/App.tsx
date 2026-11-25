@@ -15,7 +15,6 @@ import { DocumentsPage } from './pages/Documents';
 import { ExpensesPage } from './pages/Expenses';
 import { ServiceAlertsPage } from './pages/ServiceAlerts';
 import { AnalyticsPage } from './pages/Analytics';
-import { ReportsPage } from './pages/Reports';
 import { SettingsPage } from './pages/Settings';
 
 import {
@@ -151,7 +150,6 @@ export const App: React.FC = () => {
       'expenses',
       'alerts',
       'analytics',
-      'reports',
       'settings',
     ];
 
@@ -225,6 +223,8 @@ export const App: React.FC = () => {
             const allowed = ROLE_PERMISSIONS[currentUser.role]?.allowedTabs || [];
             if (allowed.includes(tabCandidate)) {
               setCurrentTab(tabCandidate);
+            } else {
+              setCurrentTab('dashboard');
             }
           } else {
             setCurrentTab(tabCandidate);
@@ -232,6 +232,9 @@ export const App: React.FC = () => {
           if (parts[1]) {
             setSelectedVehicleId(parts[1]);
           }
+        } else {
+          setCurrentTab('dashboard');
+          setSelectedVehicleId(null);
         }
       }
     }
@@ -778,7 +781,6 @@ export const App: React.FC = () => {
     documents: 'Statutory Compliance Documents',
     alerts: 'Automatic Service & Document Alerts',
     analytics: 'All-Fleet Operations Analytics',
-    reports: 'Audit Reports & CSV Data Export',
     settings: 'System Settings & Integration',
   };
 
@@ -864,6 +866,7 @@ export const App: React.FC = () => {
                 onAddTrip={() => setCurrentTab('trips')}
                 onOpenQRScanner={handleOpenQRScanner}
                 currentUser={currentUser}
+                onExportCSV={() => handleExportCSV('fleet')}
               />
             ) : currentTab === 'vehicles' ? (
               <Vehicles
@@ -940,8 +943,6 @@ export const App: React.FC = () => {
                 onSelectVehicle={handleSelectVehicle}
                 onExportCSV={() => handleExportCSV('fleet')}
               />
-            ) : currentTab === 'reports' ? (
-              <ReportsPage vehicles={vehicles} />
             ) : currentTab === 'settings' ? (
               <SettingsPage
                 settings={settings}
