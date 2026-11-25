@@ -534,6 +534,7 @@ export const api = {
     return [
       { driver_id: 'driver-satheesh', name: 'Satheesh', active: true },
       { driver_id: 'driver-saravanan-perumal', name: 'Saravanan Perumal', active: true },
+      { driver_id: 'driver-suresh', name: 'Suresh', active: true },
     ];
   },
 

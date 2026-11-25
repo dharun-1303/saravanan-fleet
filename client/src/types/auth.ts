@@ -95,7 +95,7 @@ export const DEFAULT_USERS = [
   },
 ];
 
-export const DEFAULT_SECURITY_GATE_PIN = '9999';
+export const DEFAULT_SECURITY_GATE_PIN = '7777';
 export const DEFAULT_DRIVER_PIN = '1234';
 
 export interface AppUser {
@@ -121,6 +121,7 @@ export interface DriverRecord {
 export const KNOWN_DRIVERS = [
   'Satheesh',
   'Saravanan Perumal',
+  'Suresh',
 ];
 
 export interface RolePermissions {
