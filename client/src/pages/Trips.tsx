@@ -1445,7 +1445,7 @@ export const Trips: React.FC<TripsProps> = ({
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg"
                     >
                       <option value="">Select Driver</option>
-                      {(drivers && drivers.length > 0 ? drivers.map(d => d.name) : KNOWN_DRIVERS).map(d => (
+                      {(drivers && drivers.length > 0 ? drivers.filter(d => d.active !== false).map(d => d.name) : KNOWN_DRIVERS).map(d => (
                         <option key={d} value={d}>{d}</option>
                       ))}
                     </select>

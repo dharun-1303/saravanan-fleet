@@ -38,7 +38,7 @@ export const LoginPage: React.FC<LoginProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'staff' | 'gate' | 'driver'>('staff');
 
-  const availableDrivers = drivers && drivers.length > 0 ? drivers.map(d => d.name) : KNOWN_DRIVERS;
+  const availableDrivers = drivers && drivers.length > 0 ? drivers.filter(d => d.active !== false).map(d => d.name) : KNOWN_DRIVERS;
 
   // Staff Login State
   const [identifier, setIdentifier] = useState('');

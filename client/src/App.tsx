@@ -668,7 +668,7 @@ export const App: React.FC = () => {
     setSettings(updated);
   };
 
-  const handleAddDriver = async (data: { name: string; phone?: string }) => {
+  const handleAddDriver = async (data: { name: string; phone?: string; license_number?: string; assigned_vehicle?: string; active?: boolean }) => {
     try {
       const created = await api.createDriver(data);
       setDrivers(prev => [...prev.filter(d => d.driver_id !== created.driver_id), created]);
@@ -676,6 +676,18 @@ export const App: React.FC = () => {
       await fetchAllData();
     } catch (err: any) {
       showNotification(err.message || 'Failed to add driver.', 'error');
+    }
+  };
+
+  const handleUpdateDriver = async (id: string, data: Partial<DriverRecord>) => {
+    try {
+      const updated = await api.updateDriver(id, data);
+      setDrivers(prev => prev.map(d => (d.driver_id === id || d.name === id ? { ...d, ...updated } : d)));
+      showNotification(`Driver "${updated.name || data.name || id}" details updated successfully.`, 'success');
+      await fetchAllData();
+    } catch (err: any) {
+      showNotification(err.message || 'Failed to update driver details.', 'error');
+      throw err;
     }
   };
 
@@ -950,7 +962,9 @@ export const App: React.FC = () => {
                 onUpdateSetting={handleUpdateSetting}
                 users={users}
                 drivers={drivers}
+                vehicles={vehicles}
                 onAddDriver={handleAddDriver}
+                onUpdateDriver={handleUpdateDriver}
                 onDeleteDriver={handleDeleteDriver}
                 onAddUser={handleAddUser}
                 onDeleteUser={handleDeleteUser}

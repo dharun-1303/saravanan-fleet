@@ -921,13 +921,47 @@ export function createFleetRouter(dataStore: DataStore): Router {
 
   router.post('/drivers', async (req: Request, res: Response) => {
     try {
-      const { name, phone } = req.body;
+      const { name, phone, license_number, assigned_vehicle, active } = req.body;
       if (!name || !name.trim()) {
         res.status(400).json({ error: 'Driver name is required' });
         return;
       }
-      const newDriver = await dataStore.addDriver({ name: name.trim(), phone: phone?.trim() });
+      const newDriver = await dataStore.addDriver({
+        name: name.trim(),
+        phone: phone?.trim(),
+        license_number: license_number?.trim(),
+        assigned_vehicle: assigned_vehicle?.trim(),
+        active,
+      });
       res.status(201).json(newDriver);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.put('/drivers/:id', async (req: Request, res: Response) => {
+    try {
+      const driverId = String(req.params.id);
+      const updated = await dataStore.updateDriver(driverId, req.body);
+      if (!updated) {
+        res.status(404).json({ error: 'Driver not found' });
+        return;
+      }
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  router.patch('/drivers/:id', async (req: Request, res: Response) => {
+    try {
+      const driverId = String(req.params.id);
+      const updated = await dataStore.updateDriver(driverId, req.body);
+      if (!updated) {
+        res.status(404).json({ error: 'Driver not found' });
+        return;
+      }
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

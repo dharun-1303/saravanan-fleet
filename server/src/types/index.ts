@@ -121,6 +121,8 @@ export interface DriverRecord {
   driver_id: string;
   name: string;
   phone?: string;
+  license_number?: string;
+  assigned_vehicle?: string;
   active?: boolean;
   row_index?: number;
 }

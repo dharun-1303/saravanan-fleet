@@ -488,7 +488,7 @@ export class DataStore {
           }
           if (missingCore.includes('Drivers')) {
             creationPromises.push(this.sheetsClient.ensureTabExists('Drivers', [
-              'driver_id', 'name', 'phone', 'active'
+              'driver_id', 'name', 'phone', 'active', 'license_number', 'assigned_vehicle'
             ]));
           }
           if (missingCore.includes('Settings')) {
@@ -782,6 +782,8 @@ export class DataStore {
             name: (r[1] || '').toString().trim(),
             phone: (r[2] || '').toString().trim(),
             active: (r[3] || '').toString().trim().toLowerCase() !== 'false',
+            license_number: (r[4] || '').toString().trim(),
+            assigned_vehicle: (r[5] || '').toString().trim(),
             row_index: i + 1,
           });
         }
@@ -795,6 +797,8 @@ export class DataStore {
             d.name,
             d.phone || '',
             d.active !== false ? 'true' : 'false',
+            d.license_number || '',
+            d.assigned_vehicle || '',
           ]);
           await this.sheetsClient.appendRows('Drivers', rowsToSeed);
         } catch (seedErr: any) {
@@ -1962,7 +1966,13 @@ export class DataStore {
     return this.drivers.find(d => d.driver_id === id);
   }
 
-  public async addDriver(driverData: { name: string; phone?: string }): Promise<DriverRecord> {
+  public async addDriver(driverData: {
+    name: string;
+    phone?: string;
+    license_number?: string;
+    assigned_vehicle?: string;
+    active?: boolean;
+  }): Promise<DriverRecord> {
     const cleanName = (driverData.name || '').trim();
     if (!cleanName) {
       throw new Error('Driver name is required');
@@ -1972,18 +1982,23 @@ export class DataStore {
       driver_id: `drv-${Date.now().toString().slice(-6)}`,
       name: cleanName,
       phone: (driverData.phone || '').trim(),
-      active: true,
+      license_number: (driverData.license_number || '').trim(),
+      assigned_vehicle: (driverData.assigned_vehicle || '').trim(),
+      active: driverData.active !== undefined ? Boolean(driverData.active) : true,
     };
     this.drivers.push(newDriver);
 
     if (this.sheetsClient.isConfigured()) {
       try {
-        await this.sheetsClient.appendRow('Drivers', [
+        const res = await this.sheetsClient.appendRow('Drivers', [
           newDriver.driver_id,
           newDriver.name,
           newDriver.phone || '',
-          'true',
+          newDriver.active !== false ? 'true' : 'false',
+          newDriver.license_number || '',
+          newDriver.assigned_vehicle || '',
         ]);
+        newDriver.row_index = res.rowIndex;
       } catch (err: any) {
         console.error('[DataStore] Error appending driver to Sheets:', err.message);
       }
@@ -1991,6 +2006,67 @@ export class DataStore {
 
     this.lastWriteTimestamp = Date.now();
     return newDriver;
+  }
+
+  public async updateDriver(id: string, updates: Partial<DriverRecord>): Promise<DriverRecord | null> {
+    const cleanId = (id || '').trim();
+    const index = this.drivers.findIndex(
+      d => d.driver_id === cleanId || d.name.toLowerCase() === cleanId.toLowerCase()
+    );
+    if (index === -1) return null;
+
+    const existing = this.drivers[index];
+    const cleanName = updates.name !== undefined ? updates.name.trim() : existing.name;
+    if (!cleanName) {
+      throw new Error('Driver name cannot be empty');
+    }
+
+    const merged: DriverRecord = {
+      ...existing,
+      ...updates,
+      name: cleanName,
+      phone: updates.phone !== undefined ? updates.phone.trim() : existing.phone,
+      license_number: updates.license_number !== undefined ? updates.license_number.trim() : existing.license_number,
+      assigned_vehicle: updates.assigned_vehicle !== undefined ? updates.assigned_vehicle.trim() : existing.assigned_vehicle,
+      active: updates.active !== undefined ? Boolean(updates.active) : (existing.active !== false),
+    };
+
+    if (this.sheetsClient.isConfigured()) {
+      try {
+        const rows = await this.sheetsClient.readSheetValues('Drivers');
+        let rowIndex = rows.findIndex(
+          (r, idx) => idx > 0 && (r[0] === existing.driver_id || (r[1] || '').toString().toLowerCase() === existing.name.toLowerCase())
+        ) + 1;
+
+        if (rowIndex <= 1 && existing.row_index && existing.row_index <= rows.length) {
+          rowIndex = existing.row_index;
+        }
+
+        const rowValues = [
+          merged.driver_id,
+          merged.name,
+          merged.phone || '',
+          merged.active !== false ? 'true' : 'false',
+          merged.license_number || '',
+          merged.assigned_vehicle || '',
+        ];
+
+        if (rowIndex > 1) {
+          await this.sheetsClient.updateRow('Drivers', rowIndex, rowValues);
+          merged.row_index = rowIndex;
+        } else {
+          const res = await this.sheetsClient.appendRow('Drivers', rowValues);
+          merged.row_index = res.rowIndex;
+        }
+      } catch (err: any) {
+        console.error('[DataStore] Error updating driver in Sheets:', err.message);
+        throw new Error(`Google Sheets update failed for driver: ${err.message}`);
+      }
+    }
+
+    this.drivers[index] = merged;
+    this.lastWriteTimestamp = Date.now();
+    return merged;
   }
 
   public async deleteDriver(id: string): Promise<boolean> {

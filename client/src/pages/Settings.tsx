@@ -12,6 +12,7 @@ import {
   Lock,
   Plus,
   Trash2,
+  Edit2,
   KeyRound,
   Shield,
   Eye,
@@ -29,6 +30,7 @@ import {
   ROLE_CONFIGS,
   AppUser,
   DriverRecord,
+  Vehicle,
 } from '../types';
 
 interface SettingsProps {
@@ -37,10 +39,12 @@ interface SettingsProps {
   onUpdateSetting: (key: string, value: string) => Promise<void>;
   users?: AppUser[];
   drivers?: DriverRecord[];
+  vehicles?: Vehicle[];
   onAddUser?: (userData: Partial<AppUser>) => Promise<void>;
   onDeleteUser?: (userId: string) => Promise<void>;
   onUpdatePassword?: (userId: string, newPassword: string) => Promise<void>;
-  onAddDriver?: (driverData: { name: string; phone?: string }) => Promise<void>;
+  onAddDriver?: (driverData: { name: string; phone?: string; license_number?: string; assigned_vehicle?: string; active?: boolean }) => Promise<void>;
+  onUpdateDriver?: (driverId: string, driverData: Partial<DriverRecord>) => Promise<void>;
   onDeleteDriver?: (driverId: string) => Promise<void>;
 }
 
@@ -50,10 +54,12 @@ export const SettingsPage: React.FC<SettingsProps> = ({
   onUpdateSetting,
   users = [],
   drivers = [],
+  vehicles = [],
   onAddUser,
   onDeleteUser,
   onUpdatePassword,
   onAddDriver,
+  onUpdateDriver,
   onDeleteDriver,
 }) => {
   const [formValues, setFormValues] = useState<Record<string, string>>(() => {
@@ -97,6 +103,17 @@ export const SettingsPage: React.FC<SettingsProps> = ({
   const [showAddDriverModal, setShowAddDriverModal] = useState(false);
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverPhone, setNewDriverPhone] = useState('');
+  const [newDriverLicense, setNewDriverLicense] = useState('');
+  const [newDriverVehicle, setNewDriverVehicle] = useState('');
+
+  // Edit Driver Modal State
+  const [editingDriver, setEditingDriver] = useState<DriverRecord | null>(null);
+  const [editDriverName, setEditDriverName] = useState('');
+  const [editDriverPhone, setEditDriverPhone] = useState('');
+  const [editDriverLicense, setEditDriverLicense] = useState('');
+  const [editDriverVehicle, setEditDriverVehicle] = useState('');
+  const [editDriverActive, setEditDriverActive] = useState(true);
+  const [isUpdatingDriver, setIsUpdatingDriver] = useState(false);
 
   useEffect(() => {
     const map: Record<string, string> = {};
@@ -227,15 +244,61 @@ export const SettingsPage: React.FC<SettingsProps> = ({
     }
     try {
       if (onAddDriver) {
-        await onAddDriver({ name: cleanName, phone: newDriverPhone.trim() });
+        await onAddDriver({
+          name: cleanName,
+          phone: newDriverPhone.trim(),
+          license_number: newDriverLicense.trim(),
+          assigned_vehicle: newDriverVehicle.trim(),
+          active: true,
+        });
       }
       setShowAddDriverModal(false);
       setNewDriverName('');
       setNewDriverPhone('');
+      setNewDriverLicense('');
+      setNewDriverVehicle('');
       setSavedSuccess(`Driver "${cleanName}" added successfully.`);
       setTimeout(() => setSavedSuccess(null), 3000);
     } catch (err: any) {
       alert(err.message || 'Failed to add driver');
+    }
+  };
+
+  const handleStartEditDriver = (driver: DriverRecord) => {
+    setEditingDriver(driver);
+    setEditDriverName(driver.name || '');
+    setEditDriverPhone(driver.phone || '');
+    setEditDriverLicense(driver.license_number || '');
+    setEditDriverVehicle(driver.assigned_vehicle || '');
+    setEditDriverActive(driver.active !== false);
+  };
+
+  const handleSaveEditDriver = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDriver) return;
+    const cleanName = editDriverName.trim();
+    if (!cleanName) {
+      alert('Driver name is required.');
+      return;
+    }
+    if (onUpdateDriver) {
+      setIsUpdatingDriver(true);
+      try {
+        await onUpdateDriver(editingDriver.driver_id, {
+          name: cleanName,
+          phone: editDriverPhone.trim(),
+          license_number: editDriverLicense.trim(),
+          assigned_vehicle: editDriverVehicle.trim(),
+          active: editDriverActive,
+        });
+        setEditingDriver(null);
+        setSavedSuccess(`Driver "${cleanName}" details updated successfully.`);
+        setTimeout(() => setSavedSuccess(null), 3000);
+      } catch (err: any) {
+        alert(err.message || 'Failed to update driver details.');
+      } finally {
+        setIsUpdatingDriver(false);
+      }
     }
   };
 
@@ -470,6 +533,8 @@ export const SettingsPage: React.FC<SettingsProps> = ({
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
                 <th className="py-2.5 px-3">Driver Name</th>
                 <th className="py-2.5 px-3">Phone Number</th>
+                <th className="py-2.5 px-3">License No.</th>
+                <th className="py-2.5 px-3">Assigned Vehicle</th>
                 <th className="py-2.5 px-3">Status</th>
                 <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
@@ -477,32 +542,53 @@ export const SettingsPage: React.FC<SettingsProps> = ({
             <tbody className="divide-y divide-slate-100">
               {drivers.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-4 text-center text-slate-400">
+                  <td colSpan={6} className="py-4 text-center text-slate-400">
                     No fleet drivers configured yet. Click "Add Driver" to create one.
                   </td>
                 </tr>
               ) : (
-                drivers.map(d => (
-                  <tr key={d.driver_id} className="hover:bg-slate-50/70">
-                    <td className="py-2.5 px-3 font-bold text-slate-800 whitespace-nowrap">{d.name}</td>
-                    <td className="py-2.5 px-3 font-mono text-slate-600">{d.phone || '—'}</td>
-                    <td className="py-2.5 px-3">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
-                        Active
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteDriver(d.driver_id, d.name)}
-                        className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50"
-                        title="Remove driver"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                drivers.map(d => {
+                  const assignedVeh = vehicles.find(v => v.vehicle_id === d.assigned_vehicle || v.registration_number === d.assigned_vehicle);
+                  return (
+                    <tr key={d.driver_id} className="hover:bg-slate-50/70">
+                      <td className="py-2.5 px-3 font-bold text-slate-800 whitespace-nowrap">{d.name}</td>
+                      <td className="py-2.5 px-3 font-mono text-slate-600">{d.phone || '—'}</td>
+                      <td className="py-2.5 px-3 font-mono text-slate-600">{d.license_number || '—'}</td>
+                      <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
+                        {assignedVeh ? `${assignedVeh.vehicle_name} (${assignedVeh.registration_number})` : d.assigned_vehicle || '—'}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          d.active !== false
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`}>
+                          {d.active !== false ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditDriver(d)}
+                            className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50 transition-colors"
+                            title="Edit driver details"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDriver(d.driver_id, d.name)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50 transition-colors"
+                            title="Remove driver"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -785,6 +871,33 @@ export const SettingsPage: React.FC<SettingsProps> = ({
                 />
               </div>
 
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">License Number (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. TN87-20220001234"
+                  value={newDriverLicense}
+                  onChange={e => setNewDriverLicense(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Assigned Vehicle (Optional)</label>
+                <select
+                  value={newDriverVehicle}
+                  onChange={e => setNewDriverVehicle(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                >
+                  <option value="">None / Floating Driver</option>
+                  {vehicles.map(v => (
+                    <option key={v.vehicle_id} value={v.vehicle_id}>
+                      {v.vehicle_name} ({v.registration_number})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -798,6 +911,101 @@ export const SettingsPage: React.FC<SettingsProps> = ({
                   className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-bold shadow-xs"
                 >
                   Save Driver
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Driver Modal */}
+      {editingDriver && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Edit Driver Details</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Updates to driver details are immediately persisted to Google Sheets and reflected in login and trip logging.
+              </p>
+            </div>
+            <form onSubmit={handleSaveEditDriver} className="space-y-3.5 text-xs">
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Driver Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Satheesh"
+                  value={editDriverName}
+                  onChange={e => setEditDriverName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Phone Number (Optional)</label>
+                <input
+                  type="tel"
+                  placeholder="e.g. +91 98765 43210"
+                  value={editDriverPhone}
+                  onChange={e => setEditDriverPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">License Number (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. TN87-20220001234"
+                  value={editDriverLicense}
+                  onChange={e => setEditDriverLicense(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Assigned Vehicle (Optional)</label>
+                <select
+                  value={editDriverVehicle}
+                  onChange={e => setEditDriverVehicle(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                >
+                  <option value="">None / Floating Driver</option>
+                  {vehicles.map(v => (
+                    <option key={v.vehicle_id} value={v.vehicle_id}>
+                      {v.vehicle_name} ({v.registration_number})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">Driver Status</label>
+                <select
+                  value={editDriverActive ? 'active' : 'inactive'}
+                  onChange={e => setEditDriverActive(e.target.value === 'active')}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-medium"
+                >
+                  <option value="active">Active (Available for Login &amp; Trips)</option>
+                  <option value="inactive">Inactive / Suspended</option>
+                </select>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingDriver(null)}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingDriver}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-xs disabled:opacity-50"
+                >
+                  {isUpdatingDriver ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>

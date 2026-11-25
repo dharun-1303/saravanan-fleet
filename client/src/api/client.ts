@@ -534,15 +534,30 @@ export const api = {
     ];
   },
 
-  async createDriver(data: { name: string; phone?: string }): Promise<DriverRecord> {
+  async createDriver(data: {
+    name: string;
+    phone?: string;
+    license_number?: string;
+    assigned_vehicle?: string;
+    active?: boolean;
+  }): Promise<DriverRecord> {
     const cleanName = data.name.trim();
     const cleanPhone = (data.phone || '').trim();
+    const cleanLicense = (data.license_number || '').trim();
+    const cleanVehicle = (data.assigned_vehicle || '').trim();
+    const payload = {
+      name: cleanName,
+      phone: cleanPhone,
+      license_number: cleanLicense,
+      assigned_vehicle: cleanVehicle,
+      active: data.active !== false,
+    };
 
     try {
       const res = await fetch(`${API_BASE}/drivers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-        body: JSON.stringify({ name: cleanName, phone: cleanPhone }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         const created = await res.json();
@@ -562,7 +577,9 @@ export const api = {
       driver_id: `drv-${Date.now().toString().slice(-6)}`,
       name: cleanName,
       phone: cleanPhone,
-      active: true,
+      license_number: cleanLicense,
+      assigned_vehicle: cleanVehicle,
+      active: data.active !== false,
     };
 
     try {
@@ -573,6 +590,59 @@ export const api = {
     } catch {}
 
     return newDriver;
+  },
+
+  async updateDriver(id: string, data: Partial<DriverRecord>): Promise<DriverRecord> {
+    const cleanId = (id || '').trim();
+    try {
+      const res = await fetch(`${API_BASE}/drivers/${encodeURIComponent(cleanId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        try {
+          const current = await this.getDrivers();
+          const nextList = current.map(d =>
+            d.driver_id === cleanId || d.name === cleanId ? { ...d, ...updated } : d
+          );
+          localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(nextList));
+        } catch {}
+        return updated;
+      }
+    } catch (err: any) {
+      console.warn('PUT /api/drivers failed, falling back to local/settings persistence:', err.message);
+    }
+
+    // Fallback
+    try {
+      const current = await this.getDrivers();
+      const existing = current.find(d => d.driver_id === cleanId || d.name === cleanId);
+      const merged: DriverRecord = {
+        driver_id: existing?.driver_id || cleanId,
+        name: data.name !== undefined ? data.name.trim() : (existing?.name || cleanId),
+        phone: data.phone !== undefined ? data.phone.trim() : existing?.phone,
+        license_number: data.license_number !== undefined ? data.license_number.trim() : existing?.license_number,
+        assigned_vehicle: data.assigned_vehicle !== undefined ? data.assigned_vehicle.trim() : existing?.assigned_vehicle,
+        active: data.active !== undefined ? Boolean(data.active) : (existing?.active !== false),
+      };
+      const nextList = current.map(d =>
+        d.driver_id === cleanId || d.name === cleanId ? merged : d
+      );
+      if (!current.some(d => d.driver_id === cleanId || d.name === cleanId)) {
+        nextList.push(merged);
+      }
+      localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(nextList));
+      await this.updateSetting('APP_DRIVERS_JSON', JSON.stringify(nextList)).catch(() => {});
+      return merged;
+    } catch {}
+
+    return {
+      driver_id: cleanId,
+      name: data.name || cleanId,
+      ...data,
+    };
   },
 
   async deleteDriver(id: string): Promise<boolean> {
