@@ -104,7 +104,18 @@ export const App: React.FC = () => {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [settings, setSettings] = useState<SettingRecord[]>([]);
-  const [drivers, setDrivers] = useState<DriverRecord[]>([]);
+  const [drivers, setDrivers] = useState<DriverRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('saravanan_fleet_drivers');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((d: any) => d && d.name && d.name.trim().toLowerCase() !== 'ravi');
+        }
+      }
+    } catch {}
+    return [];
+  });
   const [users, setUsers] = useState<AppUser[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
 
@@ -316,7 +327,11 @@ export const App: React.FC = () => {
           } catch {}
         }
       }
+      resolvedDrivers = resolvedDrivers.filter(d => d && d.name && d.name.trim().toLowerCase() !== 'ravi');
       setDrivers(resolvedDrivers);
+      if (resolvedDrivers.length > 0) {
+        localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(resolvedDrivers));
+      }
 
       let resolvedUsers = usr || [];
       if (resolvedUsers.length === 0 && s && s.length > 0) {

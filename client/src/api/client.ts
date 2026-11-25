@@ -513,8 +513,9 @@ export const api = {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
-          localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(data));
-          return data;
+          const sanitized = data.filter((d: any) => d && d.name && d.name.trim().toLowerCase() !== 'ravi');
+          localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(sanitized));
+          return sanitized;
         }
       }
     } catch {}
@@ -523,14 +524,16 @@ export const api = {
       const saved = localStorage.getItem('saravanan_fleet_drivers');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const sanitized = parsed.filter((d: any) => d && d.name && d.name.trim().toLowerCase() !== 'ravi');
+          return sanitized;
+        }
       }
     } catch {}
 
     return [
       { driver_id: 'driver-satheesh', name: 'Satheesh', active: true },
       { driver_id: 'driver-saravanan-perumal', name: 'Saravanan Perumal', active: true },
-      { driver_id: 'driver-ravi', name: 'Ravi', active: true },
     ];
   },
 

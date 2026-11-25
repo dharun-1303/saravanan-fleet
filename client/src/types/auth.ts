@@ -121,7 +121,6 @@ export interface DriverRecord {
 export const KNOWN_DRIVERS = [
   'Satheesh',
   'Saravanan Perumal',
-  'Ravi',
 ];
 
 export interface RolePermissions {

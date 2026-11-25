@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Zap,
   ShieldCheck,
@@ -34,11 +34,36 @@ export const LoginPage: React.FC<LoginProps> = ({
   gatePin = DEFAULT_SECURITY_GATE_PIN,
   driverPin = DEFAULT_DRIVER_PIN,
   customUsers,
-  drivers,
+  drivers: propDrivers,
 }) => {
   const [activeTab, setActiveTab] = useState<'staff' | 'gate' | 'driver'>('staff');
 
-  const availableDrivers = drivers && drivers.length > 0 ? drivers.filter(d => d.active !== false).map(d => d.name) : KNOWN_DRIVERS;
+  // Load initial drivers from prop, localStorage, or fallback
+  const [liveDrivers, setLiveDrivers] = useState<DriverRecord[]>(() => {
+    if (propDrivers && propDrivers.length > 0) {
+      return propDrivers.filter(d => d.active !== false && d.name.trim().toLowerCase() !== 'ravi');
+    }
+    try {
+      const saved = localStorage.getItem('saravanan_fleet_drivers');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((d: any) => d && d.name && d.active !== false && d.name.trim().toLowerCase() !== 'ravi');
+        }
+      }
+    } catch {}
+    return KNOWN_DRIVERS.filter(n => n.toLowerCase() !== 'ravi').map(n => ({
+      driver_id: `driver-${n.toLowerCase().replace(/\s+/g, '-')}`,
+      name: n,
+      active: true,
+    }));
+  });
+
+  const availableDrivers = liveDrivers.length > 0
+    ? liveDrivers.map(d => d.name)
+    : (propDrivers && propDrivers.length > 0
+      ? propDrivers.filter(d => d.active !== false && d.name.trim().toLowerCase() !== 'ravi').map(d => d.name)
+      : KNOWN_DRIVERS.filter(n => n.toLowerCase() !== 'ravi'));
 
   // Staff Login State
   const [identifier, setIdentifier] = useState('');
@@ -51,8 +76,34 @@ export const LoginPage: React.FC<LoginProps> = ({
   const [gateError, setGateError] = useState<string | null>(null);
 
   // Driver Login State (Passwordless)
-  const [selectedDriver, setSelectedDriver] = useState(availableDrivers[0] || KNOWN_DRIVERS[0]);
+  const [selectedDriver, setSelectedDriver] = useState(availableDrivers[0] || 'Satheesh');
   const [driverError, setDriverError] = useState<string | null>(null);
+
+  // Always fetch live drivers from backend on mount to ensure fresh list without stale cache
+  useEffect(() => {
+    let isMounted = true;
+    api.getDrivers().then(list => {
+      if (isMounted && Array.isArray(list) && list.length > 0) {
+        const valid = list.filter(d => d.active !== false && d.name.trim().toLowerCase() !== 'ravi');
+        setLiveDrivers(valid);
+        localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(valid));
+        setSelectedDriver(prev => (prev && valid.some(d => d.name === prev) ? prev : valid[0]?.name || 'Satheesh'));
+      }
+    }).catch(err => {
+      console.warn('[Login] Live driver fetch error:', err);
+    });
+    return () => { isMounted = false; };
+  }, []);
+
+  // Sync if parent App updates drivers prop
+  useEffect(() => {
+    if (propDrivers && propDrivers.length > 0) {
+      const valid = propDrivers.filter(d => d.active !== false && d.name.trim().toLowerCase() !== 'ravi');
+      setLiveDrivers(valid);
+      localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(valid));
+      setSelectedDriver(prev => (prev && valid.some(d => d.name === prev) ? prev : valid[0]?.name || 'Satheesh'));
+    }
+  }, [propDrivers]);
 
   const allUsers = customUsers && customUsers.length > 0 ? customUsers : DEFAULT_USERS;
 
