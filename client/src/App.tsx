@@ -317,15 +317,18 @@ export const App: React.FC = () => {
       setSyncStatus(status);
       setAnalytics(an);
 
-      let resolvedDrivers = drv || [];
-      if (resolvedDrivers.length === 0 && s && s.length > 0) {
-        const driversSetting = s.find(x => x.key === 'APP_DRIVERS_JSON')?.value;
-        if (driversSetting) {
-          try {
-            const parsed = JSON.parse(driversSetting);
-            if (Array.isArray(parsed) && parsed.length > 0) resolvedDrivers = parsed;
-          } catch {}
-        }
+      let resolvedDrivers: DriverRecord[] = [];
+      const driversSetting = s && s.length > 0 ? s.find(x => x.key === 'APP_DRIVERS_JSON')?.value : null;
+      if (driversSetting) {
+        try {
+          const parsed = JSON.parse(driversSetting);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            resolvedDrivers = parsed;
+          }
+        } catch {}
+      }
+      if (resolvedDrivers.length === 0 && drv && drv.length > 0) {
+        resolvedDrivers = drv;
       }
       resolvedDrivers = resolvedDrivers.filter(d => d && d.name && d.name.trim().toLowerCase() !== 'ravi');
       setDrivers(resolvedDrivers);

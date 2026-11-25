@@ -520,6 +520,25 @@ export const api = {
       }
     } catch {}
 
+    // Fallback to live server settings (APP_DRIVERS_JSON) which is synced across all devices
+    try {
+      const setRes = await fetch(`${API_BASE}/settings`);
+      if (setRes.ok) {
+        const settingsData = await setRes.json();
+        if (Array.isArray(settingsData)) {
+          const driversSetting = settingsData.find((x: any) => x && x.key === 'APP_DRIVERS_JSON')?.value;
+          if (driversSetting) {
+            const parsed = JSON.parse(driversSetting);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const sanitized = parsed.filter((d: any) => d && d.name && d.name.trim().toLowerCase() !== 'ravi');
+              localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(sanitized));
+              return sanitized;
+            }
+          }
+        }
+      }
+    } catch {}
+
     try {
       const saved = localStorage.getItem('saravanan_fleet_drivers');
       if (saved) {
