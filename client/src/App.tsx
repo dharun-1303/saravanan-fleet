@@ -116,7 +116,24 @@ export const App: React.FC = () => {
     } catch {}
     return [];
   });
-  const [users, setUsers] = useState<AppUser[]>([]);
+  const [users, setUsers] = useState<AppUser[]>(() => {
+    try {
+      const cached = localStorage.getItem('saravanan_fleet_users');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged: AppUser[] = [...parsed];
+          for (const def of DEFAULT_USERS) {
+            if (!merged.some(u => u.id === def.id || u.username.toLowerCase() === def.username.toLowerCase())) {
+              merged.push(def);
+            }
+          }
+          return merged;
+        }
+      }
+    } catch {}
+    return DEFAULT_USERS;
+  });
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>({
@@ -336,8 +353,10 @@ export const App: React.FC = () => {
         localStorage.setItem('saravanan_fleet_drivers', JSON.stringify(resolvedDrivers));
       }
 
-      let resolvedUsers = usr || [];
-      if (resolvedUsers.length === 0 && s && s.length > 0) {
+      let resolvedUsers: AppUser[] = [];
+      if (Array.isArray(usr) && usr.length > 0) {
+        resolvedUsers = usr;
+      } else if (s && s.length > 0) {
         const usersSetting = s.find(x => x.key === 'APP_USERS_JSON')?.value;
         if (usersSetting) {
           try {
@@ -346,7 +365,17 @@ export const App: React.FC = () => {
           } catch {}
         }
       }
-      setUsers(resolvedUsers);
+
+      const mergedUsers: AppUser[] = [...resolvedUsers];
+      for (const def of DEFAULT_USERS) {
+        if (!mergedUsers.some(u => u.id === def.id || u.username.toLowerCase() === def.username.toLowerCase())) {
+          mergedUsers.push(def);
+        }
+      }
+      setUsers(mergedUsers);
+      if (mergedUsers.length > 0) {
+        localStorage.setItem('saravanan_fleet_users', JSON.stringify(mergedUsers));
+      }
     } catch (err: any) {
       console.error('Error fetching fleet data:', err);
       setSyncStatus(prev => ({
@@ -722,7 +751,12 @@ export const App: React.FC = () => {
 
   const handleAddUser = async (data: Partial<AppUser>) => {
     try {
-      await api.createUser(data);
+      const created = await api.createUser(data);
+      setUsers(prev => {
+        const updated = [...prev.filter(u => u.id !== created.id && u.username.toLowerCase() !== created.username.toLowerCase()), created];
+        localStorage.setItem('saravanan_fleet_users', JSON.stringify(updated));
+        return updated;
+      });
       showNotification(`User "${data.name}" added successfully.`, 'success');
       await fetchAllData();
     } catch (err: any) {
@@ -734,6 +768,11 @@ export const App: React.FC = () => {
   const handleDeleteUser = async (id: string) => {
     try {
       await api.deleteUser(id);
+      setUsers(prev => {
+        const updated = prev.filter(u => u.id !== id);
+        localStorage.setItem('saravanan_fleet_users', JSON.stringify(updated));
+        return updated;
+      });
       showNotification('User deleted successfully.', 'success');
       await fetchAllData();
     } catch (err: any) {
@@ -745,6 +784,11 @@ export const App: React.FC = () => {
   const handleUpdatePassword = async (id: string, newPass: string) => {
     try {
       await api.updateUserPassword(id, newPass);
+      setUsers(prev => {
+        const updated = prev.map(u => u.id === id ? { ...u, password: newPass } : u);
+        localStorage.setItem('saravanan_fleet_users', JSON.stringify(updated));
+        return updated;
+      });
       showNotification('Password updated and saved to Google Sheets.', 'success');
       await fetchAllData();
     } catch (err: any) {

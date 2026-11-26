@@ -105,7 +105,50 @@ export const LoginPage: React.FC<LoginProps> = ({
     }
   }, [propDrivers]);
 
-  const allUsers = customUsers && customUsers.length > 0 ? customUsers : DEFAULT_USERS;
+  // Load initial staff users from prop, localStorage, or fallback
+  const [liveUsers, setLiveUsers] = useState<AppUser[]>(() => {
+    if (customUsers && customUsers.length > 0) return customUsers;
+    try {
+      const saved = localStorage.getItem('saravanan_fleet_users');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_USERS;
+  });
+
+  // Always fetch live staff users from backend on mount to ensure fresh credentials across all devices
+  useEffect(() => {
+    let isMounted = true;
+    api.getUsers().then(list => {
+      if (isMounted && Array.isArray(list) && list.length > 0) {
+        setLiveUsers(list);
+        localStorage.setItem('saravanan_fleet_users', JSON.stringify(list));
+      }
+    }).catch(err => {
+      console.warn('[Login] Live users fetch error:', err);
+    });
+    return () => { isMounted = false; };
+  }, []);
+
+  // Sync if parent App updates customUsers prop
+  useEffect(() => {
+    if (customUsers && customUsers.length > 0) {
+      setLiveUsers(customUsers);
+    }
+  }, [customUsers]);
+
+  const allUsers = React.useMemo(() => {
+    const base = liveUsers.length > 0 ? liveUsers : (customUsers && customUsers.length > 0 ? customUsers : DEFAULT_USERS);
+    const merged = [...base];
+    for (const def of DEFAULT_USERS) {
+      if (!merged.some(u => u.id === def.id || u.username.toLowerCase() === def.username.toLowerCase())) {
+        merged.push(def);
+      }
+    }
+    return merged;
+  }, [liveUsers, customUsers]);
 
   // Handle Staff login
   const handleStaffLogin = async (e?: React.FormEvent) => {

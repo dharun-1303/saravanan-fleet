@@ -1,4 +1,4 @@
-import { Vehicle, Trip, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRecord, SettingRecord, AlertItem, SyncStatus, AnalyticsSummary, AppUser, DriverRecord } from '../types';
+import { Vehicle, Trip, FuelRecord, MaintenanceRecord, DocumentRecord, ExpenseRecord, SettingRecord, AlertItem, SyncStatus, AnalyticsSummary, AppUser, DriverRecord, DEFAULT_USERS } from '../types';
 
 // Support both VITE_API_URL and VITE_API_BASE_URL, with automatic slash/api cleanup
 function resolveApiBase(): string {
@@ -698,14 +698,64 @@ export const api = {
 
   // Users & Auth
   async getUsers(): Promise<AppUser[]> {
+    // 1. Try GET /api/users
     try {
       const res = await fetch(`${API_BASE}/users`);
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) return data;
+        if (Array.isArray(data) && data.length > 0) {
+          const merged: AppUser[] = [...data];
+          for (const def of DEFAULT_USERS) {
+            if (!merged.some(u => u.id === def.id || u.username.toLowerCase() === def.username.toLowerCase())) {
+              merged.push(def);
+            }
+          }
+          localStorage.setItem('saravanan_fleet_users', JSON.stringify(merged));
+          return merged;
+        }
       }
     } catch {}
-    return [];
+
+    // 2. Try GET /api/settings for APP_USERS_JSON
+    try {
+      const res = await fetch(`${API_BASE}/settings`);
+      if (res.ok) {
+        const settings: SettingRecord[] = await res.json();
+        const userSetting = settings.find(s => s.key === 'APP_USERS_JSON')?.value;
+        if (userSetting) {
+          const parsed = JSON.parse(userSetting);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const merged: AppUser[] = [...parsed];
+            for (const def of DEFAULT_USERS) {
+              if (!merged.some(u => u.id === def.id || u.username.toLowerCase() === def.username.toLowerCase())) {
+                merged.push(def);
+              }
+            }
+            localStorage.setItem('saravanan_fleet_users', JSON.stringify(merged));
+            return merged;
+          }
+        }
+      }
+    } catch {}
+
+    // 3. Fallback to localStorage
+    try {
+      const cached = localStorage.getItem('saravanan_fleet_users');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged: AppUser[] = [...parsed];
+          for (const def of DEFAULT_USERS) {
+            if (!merged.some(u => u.id === def.id || u.username.toLowerCase() === def.username.toLowerCase())) {
+              merged.push(def);
+            }
+          }
+          return merged;
+        }
+      }
+    } catch {}
+
+    return DEFAULT_USERS;
   },
 
   async createUser(data: Partial<AppUser>): Promise<AppUser> {
@@ -716,14 +766,19 @@ export const api = {
         body: JSON.stringify(data),
       });
       if (res.ok) {
-        return await res.json();
+        const created: AppUser = await res.json();
+        const current = await this.getUsers();
+        const updated = [...current.filter(u => u.id !== created.id && u.username.toLowerCase() !== created.username.toLowerCase()), created];
+        localStorage.setItem('saravanan_fleet_users', JSON.stringify(updated));
+        await this.updateSetting('APP_USERS_JSON', JSON.stringify(updated)).catch(() => {});
+        return created;
       }
     } catch (err: any) {
       console.warn('POST /api/users failed, falling back to settings persistence:', err.message);
     }
 
     const newUser: AppUser = {
-      id: `u-${Date.now().toString().slice(-6)}`,
+      id: data.id || `u-${Date.now().toString().slice(-6)}`,
       name: (data.name || '').trim(),
       username: (data.username || '').trim(),
       email: (data.email || `${data.username}@saravanan.com`).trim(),
@@ -733,9 +788,15 @@ export const api = {
 
     try {
       const current = await this.getUsers();
-      const updated = [...current, newUser];
-      await this.updateSetting('APP_USERS_JSON', JSON.stringify(updated)).catch(() => {});
-    } catch {}
+      const updated = [
+        ...current.filter(u => u.id !== newUser.id && u.username.toLowerCase() !== newUser.username.toLowerCase()),
+        newUser
+      ];
+      localStorage.setItem('saravanan_fleet_users', JSON.stringify(updated));
+      await this.updateSetting('APP_USERS_JSON', JSON.stringify(updated));
+    } catch (err: any) {
+      console.error('Failed to persist user to APP_USERS_JSON:', err);
+    }
 
     return newUser;
   },
@@ -748,7 +809,12 @@ export const api = {
         body: JSON.stringify({ password }),
       });
       if (res.ok) {
-        return await res.json();
+        const data = await res.json();
+        const current = await this.getUsers();
+        const updated = current.map(u => u.id === id ? { ...u, password } : u);
+        localStorage.setItem('saravanan_fleet_users', JSON.stringify(updated));
+        await this.updateSetting('APP_USERS_JSON', JSON.stringify(updated)).catch(() => {});
+        return data;
       }
     } catch (err: any) {
       console.warn('PUT /api/users/:id/password failed, falling back to settings persistence:', err.message);
@@ -757,6 +823,7 @@ export const api = {
     try {
       const users = await this.getUsers();
       const updated = users.map(u => u.id === id ? { ...u, password } : u);
+      localStorage.setItem('saravanan_fleet_users', JSON.stringify(updated));
       await this.updateSetting('APP_USERS_JSON', JSON.stringify(updated));
       const targetUser = updated.find(u => u.id === id);
       return { success: true, user: targetUser };
@@ -772,7 +839,7 @@ export const api = {
         headers: getAuthHeaders(),
       });
       if (res.ok) {
-        return true;
+        // Backend deleted
       }
     } catch (err: any) {
       console.warn('DELETE /api/users/:id failed, falling back to settings persistence:', err.message);
@@ -781,6 +848,7 @@ export const api = {
     try {
       const current = await this.getUsers();
       const updated = current.filter(u => u.id !== id);
+      localStorage.setItem('saravanan_fleet_users', JSON.stringify(updated));
       await this.updateSetting('APP_USERS_JSON', JSON.stringify(updated));
       return true;
     } catch {}

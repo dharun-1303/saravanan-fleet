@@ -85,7 +85,15 @@ export const SettingsPage: React.FC<SettingsProps> = ({
   });
 
   // Staff User Management State
-  const displayedUsers: AppUser[] = users.length > 0 ? users : DEFAULT_USERS;
+  const displayedUsers: AppUser[] = React.useMemo(() => {
+    const list: AppUser[] = users && users.length > 0 ? [...users] : [];
+    for (const def of DEFAULT_USERS) {
+      if (!list.some(u => u.id === def.id || u.username.toLowerCase() === def.username.toLowerCase())) {
+        list.push(def);
+      }
+    }
+    return list.length > 0 ? list : DEFAULT_USERS;
+  }, [users]);
 
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [newUserName, setNewUserName] = useState('');
@@ -175,20 +183,24 @@ export const SettingsPage: React.FC<SettingsProps> = ({
       role: newUserRole,
     };
 
-    if (onAddUser) {
-      await onAddUser(newUser);
-    } else {
-      const updated = [...displayedUsers, { ...newUser, id: `u-${Date.now().toString().slice(-5)}` }];
-      await onUpdateSetting('APP_USERS_JSON', JSON.stringify(updated));
-    }
+    try {
+      if (onAddUser) {
+        await onAddUser(newUser);
+      } else {
+        const updated = [...displayedUsers.filter(u => u.username.toLowerCase() !== newUser.username.toLowerCase()), { ...newUser, id: `u-${Date.now().toString().slice(-5)}` }];
+        await onUpdateSetting('APP_USERS_JSON', JSON.stringify(updated));
+      }
 
-    setShowAddUserModal(false);
-    setNewUserName('');
-    setNewUserEmail('');
-    setNewUserUsername('');
-    setNewUserPassword('');
-    setSavedSuccess(`Staff user "${newUser.name}" added successfully.`);
-    setTimeout(() => setSavedSuccess(null), 3000);
+      setShowAddUserModal(false);
+      setNewUserName('');
+      setNewUserEmail('');
+      setNewUserUsername('');
+      setNewUserPassword('');
+      setSavedSuccess(`Staff user "${newUser.name}" added successfully.`);
+      setTimeout(() => setSavedSuccess(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to add staff user.');
+    }
   };
 
   const handleDeleteStaffUser = async (userId: string) => {
